@@ -7,7 +7,7 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "LED.h"
-#include "AXP2101.h"
+//#include "AXP2101.h"
 #include "WIFI.h"
 #include "HTTP.h"
 #include "TimeStamp.h"
@@ -17,6 +17,16 @@
 #include "esp_lcd_co5300.h"
 #include "IO_PIN_NUM.h"
 #include "driver/spi_common.h"
+
+#include "driver/i2c.h"
+#include "esp_lcd_touch_cst820.h"
+
+
+i2c_master_dev_handle_t amoled_tp_i2c_dev_hd = NULL;
+esp_lcd_touch_handle_t amoled_touch_handle = NULL;
+i2c_master_bus_handle_t i2c_handle = NULL;
+
+
 // 分辨率设置
 #define LCD_H_RES 384
 #define LCD_V_RES 448
@@ -59,7 +69,7 @@ static void test_draw_bitmap(esp_lcd_panel_handle_t panel_handle)
 
 void init_lcd() {
     // 1. 配置QSPI总线
-/*    spi_bus_config_t buscfg = {
+    spi_bus_config_t buscfg = {
         .sclk_io_num = IOPIN_QSPI_CLK,
         .mosi_io_num = IOPIN_QSPI_D_0,
         .miso_io_num = IOPIN_QSPI_Q_1,  // 未使用
@@ -68,13 +78,13 @@ void init_lcd() {
         .max_transfer_sz = LCD_H_RES * LCD_V_RES * LCD_BPP / 8,
         .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_IOMUX_PINS
     };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));*/
-    const spi_bus_config_t buscfg = CO5300_PANEL_BUS_QSPI_CONFIG(IOPIN_QSPI_CLK,
+
+    /*const spi_bus_config_t buscfg = CO5300_PANEL_BUS_QSPI_CONFIG(IOPIN_QSPI_CLK,
                                                                  IOPIN_QSPI_D_0,
                                                                  IOPIN_QSPI_Q_1,
                                                                  IOPIN_QSPI_WP_2,
                                                                  IOPIN_QSPI_HD_3,
-                                                                 LCD_H_RES * LCD_V_RES * LCD_BPP / 8);
+                                                                 LCD_H_RES * LCD_V_RES * LCD_BPP / 8);*/
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
 
@@ -131,6 +141,74 @@ void init_lcd() {
 }
 
 
+void AMOLED_TP_init(void)
+{
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = IOPIN_I2C_SDA,
+        .scl_io_num = IOPIN_I2C_SCL,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 400000,  // I2C时钟频率
+    };
+    ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
+    ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0));
+
+
+/*    const i2c_device_config_t amoled_tp_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = ESP_LCD_TOUCH_IO_I2C_CST820_ADDRESS,
+        .scl_speed_hz = 200000,
+    };
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_handle, &amoled_tp_config, &amoled_tp_i2c_dev_hd)); */
+
+    // 配置面板I2C IO
+    esp_lcd_panel_io_handle_t io_handle = NULL;
+    const esp_lcd_panel_io_i2c_config_t io_config = ESP_LCD_TOUCH_IO_I2C_CST820_CONFIG();
+
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)i2c_handle, &io_config, &io_handle));
+
+    // 配置触摸控制器
+    esp_lcd_touch_config_t touch_config = {
+        .x_max = LCD_H_RES,
+        .y_max = LCD_V_RES,
+        .rst_gpio_num = IOPIN_TP_RST,
+        .int_gpio_num = IOPIN_TP_IRQ,
+        .levels = {
+            .reset = 0,      // 复位电平
+            .interrupt = 0,  // 中断触发电平 (0=下降沿)
+        },
+        .flags = {
+            .swap_xy = 0,    // 是否交换XY坐标
+            .mirror_x = 0,   // 是否镜像X坐标
+            .mirror_y = 0,   // 是否镜像Y坐标
+        },
+    };
+
+    // 创建触摸控制器实例
+    ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_cst820(io_handle, &touch_config, &amoled_touch_handle));
+}
+
+
+// 读取并打印触摸坐标
+void touch_read_task(void *arg) {
+    uint16_t x[1] = {0};
+    uint16_t y[1] = {0};
+    uint8_t point_num = 0;
+
+    while (1) {
+        // 读取触摸数据
+        ESP_ERROR_CHECK(esp_lcd_touch_read_data(amoled_touch_handle));
+
+        // 获取坐标
+        if (esp_lcd_touch_get_coordinates(amoled_touch_handle, x, y, NULL, &point_num, 1)) {
+            if (point_num > 0) {
+                printf("触摸坐标: X=%d, Y=%d\n", x[0], y[0]);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz采样率
+    }
+}
 
 
 SemaphoreHandle_t SemaphoreHandle1=NULL;
@@ -140,11 +218,18 @@ TaskHandle_t task_led_indicator_handler;
 void app_main(void)
 {
     ledc_configer( );
-    AXP2101_init( );
+//    AXP2101_init( );
 //    WIFI_STA_init( );
     vTaskDelay(1000);
 //    SNTP_obtain_time();
-    init_lcd();
+//    init_lcd();
+
+    AMOLED_TP_init();
+    printf("触摸控制器初始化完成\n");
+
+    // 创建触摸读取任务
+    xTaskCreate(touch_read_task, "touch_task", 4096, NULL, 5, NULL);
+
     //SemaphoreHandle1=xSemaphoreCreateBinary();
     xTaskCreatePinnedToCore(task_led_indicator,"task1",2048,NULL,1,&task_led_indicator_handler,1);
 //xTaskCreate(&task_wifi_beacon_spam, "task_wifi_beacon_spam", 4096, NULL, 3, NULL);

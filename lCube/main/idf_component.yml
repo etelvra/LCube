@@ -1,0 +1,7 @@
+dependencies:
+
+  lvgl/lvgl:
+    version: ==8.4.0
+    public: true
+  espressif/adc_mic: ^0.2.2
+  espressif/esp-dsp: ^1.7.1

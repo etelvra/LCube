@@ -52,7 +52,7 @@ static void IRAM_ATTR PMIC_IRQfunction_handler(void* arg)
     xQueueSendFromISR(pmic_event_queue, &gpio_num, NULL);
 }
 static void task_pmic_management(void *param);
-static esp_err_t AXP2101_check_status(void);
+static uint32_t AXP2101_check_status(void);
 
 void PMIC_init(void)
 {
@@ -108,50 +108,51 @@ esp_err_t i2c_bus_init(void)
     return ESP_OK;
 }
 
-static esp_err_t AXP2101_IRQStatus_clear(void)
-{
-    static const uint8_t data[3] = {0xFF, 0xFF, 0xFF};
-    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_IRQ_STATUS1, sizeof(data), data),
-                        TAG, "clear IRQ status failed");
-    return ESP_OK;
-}
-
 static void task_pmic_management(void *param)
 {
     esp_err_t ret;
-
-    ret = AXP2101_dcdc_set_voltage(AXP2101_DCDC1, 3300);
+    ret = AXP2101_low_battery_config(20, 10);
     if (ret != ESP_OK) goto init_fail;
-    ret = AXP2101_dcdc_enable(AXP2101_DCDC1, true);
-    if (ret != ESP_OK) goto init_fail;
-
-    ret = AXP2101_ldo_set_voltage(AXP2101_ALDO3, 3300);
-    if (ret != ESP_OK) goto init_fail;
-    ret = AXP2101_ldo_enable(AXP2101_ALDO3, true);
-    if (ret != ESP_OK) goto init_fail;
-
-    uint8_t status[2];
-    ret = axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, status);
-    if (ret != ESP_OK) goto init_fail;
-    ESP_LOGI(TAG, "AXP2101_status is %02x %02x", status[0], status[1]);
 
     ret = AXP2101_charger_init(200, 4200, 100, 25);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "charger init failed, continuing without charger config");
     }
 
+    ret = AXP2101_dcdc_set_voltage(AXP2101_DCDC1, 3300);
+    if (ret != ESP_OK) ESP_LOGW(TAG, "DCDC1 init_fail");
+    ret = AXP2101_dcdc_enable(AXP2101_DCDC1, true);
+    if (ret != ESP_OK) ESP_LOGW(TAG, "DCDC1 init_fail");
+    AXP2101_dcdc_enable(AXP2101_DCDC2, false);
+    AXP2101_dcdc_enable(AXP2101_DCDC3, false);
+    AXP2101_dcdc_enable(AXP2101_DCDC4, false);
+    AXP2101_dcdc_enable(AXP2101_DCDC5, false);
+
+    ret = AXP2101_ldo_set_voltage(AXP2101_ALDO3, 3300);
+    if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
+    ret = AXP2101_ldo_enable(AXP2101_ALDO3, true);
+    if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
+
+    uint8_t status[2];
+    ret = axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, status);
+    ESP_LOGI(TAG, "AXP2101_status is %02x %02x", status[0], status[1]);
+
+    AXP2101_check_status(); /* clear any pending IRQ before entering main loop */
+
     uint32_t io_num;
     uint8_t bat_pct;
-    AXP2101_IRQStatus_clear();
+    uint32_t pmic_event_flags;
+
     while (1) {
         if (xQueueReceive(pmic_event_queue, &io_num, portMAX_DELAY)) {
             bat_pct = AXP2101_bat_percentage();
-            AXP2101_check_status();
-            if (bat_pct <= 20) {
+            pmic_event_flags = AXP2101_check_status();
+            if (bat_pct != 0xFF && bat_pct <= 10) {
+                AXP2101_sys_shutdown();
+            } else if (bat_pct != 0xFF && bat_pct <= 20
+                       && !(pmic_event_flags & AXP2101_STATUS_VBUS_GOOD)) {
                 AXP2101_sys_shutdown();
             }
-
-            AXP2101_IRQStatus_clear();
             AMOLED_console_log(INFORM, false, TAG, "GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
             AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", bat_pct);
         }
@@ -160,6 +161,7 @@ static void task_pmic_management(void *param)
 
 init_fail:
     ESP_LOGE(TAG, "PMIC init I2C failed, task exit");
+    AXP2101_sys_shutdown();
     vTaskDelete(NULL);
 }
 
@@ -182,10 +184,7 @@ uint8_t AXP2101_bat_percentage(void)
 
 esp_err_t AXP2101_amoled_turn_off(void)
 {
-    static const uint8_t data[2] = {0x00, 0x00};
-    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_LDO_ONOFF_CTRL0, 2, data),
-                        TAG, "AMOLED turn off failed");
-    return ESP_OK;
+    return AXP2101_ldo_enable(AXP2101_ALDO3, false);
 }
 
 esp_err_t AXP2101_sys_shutdown(void)
@@ -238,6 +237,25 @@ esp_err_t AXP2101_charger_init(uint16_t chg_current_ma, uint16_t chg_voltage_mv,
     data = (1 << 7) | (1 << 6) | (1 << 2) | 0x10;
     ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_CHG_TIMEOUT_SET_CTRL, 1, &data),
                         TAG, "write CHG_TIMEOUT_SET_CTRL failed");
+
+    return ESP_OK;
+}
+
+esp_err_t AXP2101_low_battery_config(uint8_t warn_pct, uint8_t shutdown_pct)
+{
+    if (warn_pct < 5 || warn_pct > 20 || shutdown_pct > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t data = ((warn_pct - 5) << 4) | shutdown_pct;
+    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_LOW_BAT_WARN_SET, 1, &data),
+                        TAG, "write LOW_BAT_WARN_SET failed");
+
+    ESP_RETURN_ON_ERROR(axp2101_i2c_read_bytes(AXP2101_INTEN1, 1, &data),
+                        TAG, "read INTEN1 failed");
+    data |= (1 << 7) | (1 << 6);
+    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_INTEN1, 1, &data),
+                        TAG, "write INTEN1 failed");
 
     return ESP_OK;
 }
@@ -459,91 +477,126 @@ esp_err_t AXP2101_ldo_set_voltage(axp2101_ldo_channel_t ldo_ch, uint16_t voltage
     return ESP_OK;
 }
 
-// esp_err_t i2c_deinit(void)
-// {
-//     ESP_ERROR_CHECK(i2c_del_master_bus(i2c_bus_handle));
-//     i2c_bus_initialized = false;
-//     return ESP_OK;
-// }
-
 //Status check item structure
 typedef struct pmic_check_item{
-    uint8_t byte_idx;      // Data byte index (0,1,2
-    uint8_t mask;          // bitmask
-    const char *message;   // state description
+    uint8_t byte_idx;
+    uint8_t mask;
+    const char *message;
+    uint32_t event_flag;
+    axp2101_event_handler_t handler;
 } pmic_check_item_t;
 
-//IRQ Status Checklist - Centrally manage all status detection logics
-static const pmic_check_item_t axp2101_IRQstatus_checks[] = {
-    // status of byte0
-    {0, 0x80, "SOC drop to Warning level"},
-    {0, 0x40, "SOC drop to Shutdown level"},
-    {0, 0x20, "Gague Watchdog Timeout IRQ"},
-    {0, 0x10, "Gague New SOC IRQ"},
-    // 温度状态使用组合检查
-    {0, 0x0A, "Battery Over Temperature"},
-    {0, 0x05, "Battery Under Temperature"},
+//IRQ Status Checklist
+static pmic_check_item_t axp2101_IRQstatus_checks[] = {
+    // status of byte0 — IRQ_STATUS1 (REG48H)
+    {0, 0x80, "SOC drop to Warning level",         AXP2101_EVENT_SOC_WARNING,    NULL},
+    {0, 0x40, "SOC drop to Shutdown level",        AXP2101_EVENT_SOC_SHUTDOWN,   NULL},
+    {0, 0x20, "Gague Watchdog Timeout IRQ",        AXP2101_EVENT_GAUGE_WDT_TIMEOUT, NULL},
+    {0, 0x10, "Gague New SOC IRQ",                 AXP2101_EVENT_GAUGE_NEW_SOC,  NULL},
+    {0, 0x0A, "Battery Over Temperature",          AXP2101_EVENT_BAT_OVER_TEMP,  NULL},
+    {0, 0x05, "Battery Under Temperature",         AXP2101_EVENT_BAT_UNDER_TEMP, NULL},
 
-    // status of byte1
-    {1, 0x80, "VBUS Insert"},
-    {1, 0x40, "VBUS Remove"},
-    {1, 0x20, "Battery Insert"},
-    {1, 0x10, "Battery Remove"},
-    {1, 0x0F, "POWERON Press"},
+    // status of byte1 — IRQ_STATUS2 (REG49H)
+    {1, 0x80, "VBUS Insert",                       AXP2101_EVENT_VBUS_INSERT,    NULL},
+    {1, 0x40, "VBUS Remove",                       AXP2101_EVENT_VBUS_REMOVE,    NULL},
+    {1, 0x20, "Battery Insert",                    AXP2101_EVENT_BAT_INSERT,     NULL},
+    {1, 0x10, "Battery Remove",                    AXP2101_EVENT_BAT_REMOVE,     NULL},
+    {1, 0x0F, "POWERON Press",                     AXP2101_EVENT_POWERON_PRESS,  NULL},
 
-    // status of byte2
-    {2, 0x80, "Watchdog Expire"},
-    {2, 0x40, "LDO Over Current"},
-    {2, 0x20, "BATFET Over Current Protuction IRQ"},
-    {2, 0x10, "Battary Charge done"},
-    {2, 0x08, "Battery Charge start"},
-    {2, 0x04, "DIE Over Temperature level1 IRQ"},
-    {2, 0x02, "Charger Safety Timer1/2 expire"},
-    {2, 0x01, "Battery Over Voltage Protection"},
+    // status of byte2 — IRQ_STATUS3 (REG4AH)
+    {2, 0x80, "Watchdog Expire",                   AXP2101_EVENT_WDT_EXPIRE,     NULL},
+    {2, 0x40, "LDO Over Current",                  AXP2101_EVENT_LDO_OC,         NULL},
+    {2, 0x20, "BATFET Over Current Protection IRQ", AXP2101_EVENT_BATFET_OCP,     NULL},
+    {2, 0x10, "Battary Charge done",               AXP2101_EVENT_CHARGE_DONE,    NULL},
+    {2, 0x08, "Battery Charge start",              AXP2101_EVENT_CHARGE_START,   NULL},
+    {2, 0x04, "DIE Over Temperature level1 IRQ",   AXP2101_EVENT_DIE_OVERTEMP,   NULL},
+    {2, 0x02, "Charger Safety Timer1/2 expire",    AXP2101_EVENT_CHG_TIMER_EXPIRE, NULL},
+    {2, 0x01, "Battery Over Voltage Protection",   AXP2101_EVENT_BAT_OVP,        NULL},
 
-    // status of byte3
-    {3, 0x20, "status   VBUS GOOD"},
-    {3, 0x10, "status   BATFET open"},
-    {3, 0x08, "status   Battery Present"},
-    {3, 0x04, "status   Battery in Active Mode"},
-    {3, 0x02, "status   In Thermal Regulation"},
-    {3, 0x01, "status   In Current Limit State"},
+    // status of byte3 — STATUS1 (REG00H)
+    {3, 0x20, "status   VBUS GOOD",                AXP2101_STATUS_VBUS_GOOD,     NULL},
+    {3, 0x10, "status   BATFET open",              AXP2101_STATUS_BATFET_OPEN,   NULL},
+    {3, 0x08, "status   Battery Present",          AXP2101_STATUS_BAT_PRESENT,   NULL},
+    {3, 0x04, "status   Battery in Active Mode",   AXP2101_STATUS_BAT_ACTIVE,    NULL},
+    {3, 0x02, "status   In Thermal Regulation",    AXP2101_STATUS_THERMAL_REG,   NULL},
+    {3, 0x01, "status   In Current Limit State",   AXP2101_STATUS_CURRENT_LIMIT, NULL},
 
-    // status of byte4
-    //{4, 0x20, ""},
-    {4, 0x10, "status   System is Power ON"},
-    {4, 0x08, "status   In VINDPM"},
-    //{4, 0x04, ""},
-    //{4, 0x02, ""},
-    //{4, 0x01, ""},
+    // status of byte4 — STATUS2 (REG01H)
+    {4, 0x10, "status   System is Power ON",       AXP2101_STATUS_SYS_POWERON,   NULL},
+    {4, 0x08, "status   In VINDPM",                AXP2101_STATUS_VINDPM,        NULL},
 
-    {0xFF, 0, NULL}// end mark
+    {0xFF, 0, NULL, 0, NULL}
 };
 
-static esp_err_t AXP2101_check_status(void)
+esp_err_t AXP2101_register_handler(uint32_t event_flag, axp2101_event_handler_t handler)
 {
-    esp_err_t ret;
+    if (!handler || !event_flag) return ESP_ERR_INVALID_ARG;
+    for (int i = 0; axp2101_IRQstatus_checks[i].message != NULL; i++) {
+        if (axp2101_IRQstatus_checks[i].event_flag == event_flag) {
+            axp2101_IRQstatus_checks[i].handler = handler;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t AXP2101_unregister_handler(uint32_t event_flag)
+{
+    for (int i = 0; axp2101_IRQstatus_checks[i].message != NULL; i++) {
+        if (axp2101_IRQstatus_checks[i].event_flag == event_flag) {
+            axp2101_IRQstatus_checks[i].handler = NULL;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+static esp_err_t AXP2101_IRQStatus_clear(void)
+{
+    static const uint8_t data[3] = {0xFF, 0xFF, 0xFF};
+    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_IRQ_STATUS1, sizeof(data), data),
+                        TAG, "clear IRQ status failed");
+    return ESP_OK;
+}
+
+static uint32_t AXP2101_check_status(void)
+{
+    uint32_t flags = 0;
     uint8_t status_data[AXP2101_IRQ_STATUS_CNT + 2];
 
-    ret = axp2101_i2c_read_bytes(AXP2101_IRQ_STATUS1, AXP2101_IRQ_STATUS_CNT, status_data);//只有数组类型在作为函数形参时会退化为指针
-    if (ret != ESP_OK) return ret;
-    ret = axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, &status_data[AXP2101_IRQ_STATUS_CNT]);
-    if (ret != ESP_OK) return ret;
+    if (axp2101_i2c_read_bytes(AXP2101_IRQ_STATUS1, AXP2101_IRQ_STATUS_CNT, status_data) != ESP_OK) {
+        return 0;
+    }
+    if (axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, &status_data[AXP2101_IRQ_STATUS_CNT]) != ESP_OK) {
+        return 0;
+    }
+    AXP2101_IRQStatus_clear();
 
     pmic_check_item_t *item = axp2101_IRQstatus_checks;
     while (item->message != NULL) {
-        if ((item->mask & (item->mask - 1)) != 0) {// Determine whether it is a multi-bit mask
-            if ((status_data[item->byte_idx] & item->mask)) {//完全符合则if ((status_data[item->byte_idx] & item->mask) == item->mask) {
-                AMOLED_console_log(INFORM, false, TAG, item->message);
-            }
-        } else {// Check the single-bit status
+        bool triggered = false;
+        if ((item->mask & (item->mask - 1)) != 0) {
             if (status_data[item->byte_idx] & item->mask) {
-                AMOLED_console_log(INFORM, false, TAG, item->message);
+                triggered = true;
+            }
+        } else {
+            if (status_data[item->byte_idx] & item->mask) {
+                triggered = true;
+            }
+        }
+
+        if (triggered) {
+            AMOLED_console_log(INFORM, false, TAG, item->message);
+            if (item->event_flag) {
+                flags |= item->event_flag;
+            }
+            if (item->handler) {
+                item->handler(item->event_flag);
             }
         }
         item++;
     }
-    return ESP_OK;
+    return flags;
 }
 
 

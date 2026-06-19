@@ -17,7 +17,9 @@ extern "C" {
 extern i2c_bus_handle_t i2c_bus_handle;
 extern bool i2c_bus_initialized;
 esp_err_t i2c_bus_init(void);
+
 void PMIC_init(void);
+
 uint8_t AXP2101_bat_percentage(void);
 esp_err_t AXP2101_amoled_turn_off(void);
 esp_err_t AXP2101_sys_shutdown(void);
@@ -32,6 +34,68 @@ esp_err_t AXP2101_sys_shutdown(void);
  */
 esp_err_t AXP2101_charger_init(uint16_t chg_current_ma, uint16_t chg_voltage_mv,
                                 uint16_t prechg_current_ma, uint16_t term_current_ma);
+
+/**
+ * @brief 低电量保护配置 (REG 1AH)
+ *        当电量低于 warn_pct 时触发警告 IRQ (REG48H[7]),
+ *        当电量低于 shutdown_pct 时触发关机 IRQ (REG48H[6]).
+ *        同时使能 REG40H 中对应的两个 IRQ.
+ *
+ * @param warn_pct     警告阈值 (5~20%), 默认 10%
+ * @param shutdown_pct 关机阈值 (0~15%), 默认 1%
+ */
+esp_err_t AXP2101_low_battery_config(uint8_t warn_pct, uint8_t shutdown_pct);
+
+/* ===== PMIC event flags & handler ===== */
+
+/* Event flag bits — set by AXP2101_check_status() when the condition is detected */
+#define AXP2101_EVENT_SOC_WARNING          (1UL << 0)
+#define AXP2101_EVENT_SOC_SHUTDOWN         (1UL << 1)
+#define AXP2101_EVENT_GAUGE_WDT_TIMEOUT    (1UL << 2)
+#define AXP2101_EVENT_GAUGE_NEW_SOC        (1UL << 3)
+#define AXP2101_EVENT_BAT_OVER_TEMP        (1UL << 4)
+#define AXP2101_EVENT_BAT_UNDER_TEMP       (1UL << 5)
+#define AXP2101_EVENT_VBUS_INSERT          (1UL << 6)
+#define AXP2101_EVENT_VBUS_REMOVE          (1UL << 7)
+#define AXP2101_EVENT_BAT_INSERT           (1UL << 8)
+#define AXP2101_EVENT_BAT_REMOVE           (1UL << 9)
+#define AXP2101_EVENT_POWERON_PRESS        (1UL << 10)
+#define AXP2101_EVENT_WDT_EXPIRE           (1UL << 11)
+#define AXP2101_EVENT_LDO_OC               (1UL << 12)
+#define AXP2101_EVENT_BATFET_OCP           (1UL << 13)
+#define AXP2101_EVENT_CHARGE_DONE          (1UL << 14)
+#define AXP2101_EVENT_CHARGE_START         (1UL << 15)
+#define AXP2101_EVENT_DIE_OVERTEMP         (1UL << 16)
+#define AXP2101_EVENT_CHG_TIMER_EXPIRE     (1UL << 17)
+#define AXP2101_EVENT_BAT_OVP              (1UL << 18)
+
+/* Status flags (non-IRQ, from STATUS1/STATUS2) */
+#define AXP2101_STATUS_VBUS_GOOD           (1UL << 20)
+#define AXP2101_STATUS_BATFET_OPEN         (1UL << 21)
+#define AXP2101_STATUS_BAT_PRESENT         (1UL << 22)
+#define AXP2101_STATUS_BAT_ACTIVE          (1UL << 23)
+#define AXP2101_STATUS_THERMAL_REG         (1UL << 24)
+#define AXP2101_STATUS_CURRENT_LIMIT       (1UL << 25)
+#define AXP2101_STATUS_SYS_POWERON         (1UL << 26)
+#define AXP2101_STATUS_VINDPM              (1UL << 27)
+
+/** Callback type for PMIC event handling. Receives the event_flag that triggered. */
+typedef void (*axp2101_event_handler_t)(uint32_t event_flag);
+
+/**
+ * @brief Dynamically register a handler for a PMIC event.
+ *        The handler is called from AXP2101_check_status() when the event triggers.
+ * @param event_flag  Event flag to listen for (e.g. AXP2101_EVENT_VBUS_INSERT)
+ * @param handler     Callback function, NULL to unregister
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG or ESP_ERR_NOT_FOUND
+ */
+esp_err_t AXP2101_register_handler(uint32_t event_flag, axp2101_event_handler_t handler);
+
+/**
+ * @brief Unregister a previously registered handler
+ * @param event_flag  Event flag to stop listening for
+ */
+esp_err_t AXP2101_unregister_handler(uint32_t event_flag);
 
 
 /* ===== DCDC power rail control ===== */

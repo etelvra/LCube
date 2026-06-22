@@ -21,7 +21,6 @@ TaskHandle_t task_led_indicator_handler;
 
 void app_main(void)
 {
-
     PMIC_init();
     ledc_configer();
     AMOLED_DISPLAY_init();

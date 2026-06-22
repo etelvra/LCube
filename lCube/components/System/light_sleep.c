@@ -83,7 +83,7 @@ esp_err_t LightSleep_register_timer_wakeup(void)
 
 void task_lightsleep_management(void *param)
 {
-    vTaskDelay(10000);//防死机先别删
+    //vTaskDelay(10000);//防死机先别删
     uint32_t lightsleep_wakeup_event;
     if (lightsleep_event_queue == NULL){
         lightsleep_event_queue = xQueueCreate(10, sizeof(uint32_t));

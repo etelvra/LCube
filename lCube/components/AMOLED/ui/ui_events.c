@@ -67,6 +67,7 @@ void LVGL_PMIC_SWevent_function(lv_event_t * e)
 void LVGL_WIFI_List_event_function(lv_event_t * e)
 {
 	// Your code here
+    lv_label_set_text(ui_Title, "WLAN List");
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
 
     wifi_cmd_scan_params_t scan_cfg = {
@@ -83,6 +84,15 @@ void LVGL_WIFI_List_event_function(lv_event_t * e)
 void LVGL_ListMember_event_function(lv_event_t * e)
 {
 	// Your code here
+    lv_label_set_text(ui_Title, "STA List");
+    TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+
+    wifi_cmd_monitor_params_t monitor_cfg = {
+        //.ap_bssid =  ,
+        .target_channel = 0,
+
+    };
+    WIFI_send_cmd(WIFI_CMD_MONITOR_START, &monitor_cfg, current_task, 0);
 }
 
 void LVGL_Console_enter_function(lv_event_t * e)

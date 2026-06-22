@@ -21,6 +21,8 @@ extern "C" {
 
 void AMOLED_LVGL_init(void);
 
+bool lvgl_lock(int timeout_ms);
+void lvgl_unlock(void);
 
 #define LVGL_LIST_MEMBER_PANEL_H   80
 #define LVGL_LIST_MEMBER_PANEL_W   SCREEN_WIDTH

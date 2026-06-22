@@ -42,7 +42,7 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 #endif
 
     // copy a buffer's content to a specific area of the display
-    esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
+    AMOLED_panel_draw_bitmap_mutex(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
     lv_disp_flush_ready(drv);
 }
 
@@ -80,14 +80,14 @@ static void lvgl_tick_cb(void *arg)
 }
 
 /* -------------------- 线程安全：LVGL 锁封装 -------------------- */
-static bool lvgl_lock(int timeout_ms)
+bool lvgl_lock(int timeout_ms)
 {
     assert(s_lvgl_mutex && "AMOLED_LVGL_init must be called first");
     const TickType_t ticks = (timeout_ms < 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     return xSemaphoreTake(s_lvgl_mutex, ticks) == pdTRUE;
 }
 
-static void lvgl_unlock(void)
+void lvgl_unlock(void)
 {
     assert(s_lvgl_mutex && "AMOLED_LVGL_init must be called first");
     xSemaphoreGive(s_lvgl_mutex);

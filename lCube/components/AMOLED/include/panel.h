@@ -79,12 +79,16 @@ extern SemaphoreHandle_t amoled_panel_mutex;
 extern SemaphoreHandle_t amoled_touch_mutex;
 
 void AMOLED_DISPLAY_init(void);
+esp_err_t AMOLED_panel_draw_bitmap_mutex(esp_lcd_panel_handle_t panel,
+                                            int x_start, int y_start, int x_end, int y_end,
+                                            const void *color_data);
+
 void AMOLED_TOUCH_init(void);
 void AMOLED_LVGL_init(void);
 
 void AMOLED_refresh(void);
 void AMOLED_console_log(uint8_t level, bool overwrite ,const char *tag, const char *format, ...);
-void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool zhuan, const char *text, ...);
+void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, const char *text, ...);
 
 
 

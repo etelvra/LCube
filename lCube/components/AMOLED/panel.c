@@ -47,6 +47,21 @@ IRAM_ATTR static void touch_callback(esp_lcd_touch_handle_t tp)
     }
 }
 
+esp_err_t AMOLED_panel_draw_bitmap_mutex(esp_lcd_panel_handle_t panel, int x_start, int y_start, int x_end, int y_end, const void *color_data)
+{
+    if (amoled_panel_mutex == NULL) {
+        ESP_LOGW(TAG, "Amoled not initialized");
+        return ESP_FAIL;
+    }
+    if (xSemaphoreTake(amoled_panel_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        esp_err_t ret = esp_lcd_panel_draw_bitmap(panel, x_start, y_start, x_end, y_end, color_data);
+        xSemaphoreGive(amoled_panel_mutex);
+        return ret;
+    } else {
+        ESP_LOGW(TAG, "Failed to acquire display mutex");
+        return ESP_FAIL;
+    }
+}
 
 void AMOLED_console_log(uint8_t level, bool overwrite, const char *tag, const char *format, ...) {
     if (amoled_panel_mutex == NULL || console.log_queue == NULL) {
@@ -142,9 +157,9 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
         }
     }
     if (portrait){
-        esp_lcd_panel_draw_bitmap(amoled_panel_handle, x_pos, y_pos, x_pos+strlen(char_buffer)*CHAR_WIDTH, y_pos + CHAR_HEIGHT, single_line_buffer);
+        AMOLED_panel_draw_bitmap_mutex(amoled_panel_handle, x_pos, y_pos, x_pos+strlen(char_buffer)*CHAR_WIDTH, y_pos + CHAR_HEIGHT, single_line_buffer);
     }else{
-        esp_lcd_panel_draw_bitmap(amoled_panel_handle, y_pos, LCD_V_RES-x_pos-strlen(char_buffer)*CHAR_WIDTH, y_pos + CHAR_HEIGHT, LCD_V_RES-x_pos, single_line_buffer);
+        AMOLED_panel_draw_bitmap_mutex(amoled_panel_handle, y_pos, LCD_V_RES-x_pos-strlen(char_buffer)*CHAR_WIDTH, y_pos + CHAR_HEIGHT, LCD_V_RES-x_pos, single_line_buffer);
     }
     heap_caps_free(single_line_buffer);
 }
@@ -233,7 +248,7 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
                 line_buffer_TS = console.line_buffers[0];
                 for (int line = 0; line < CONSOLE_ROWS - 1; line++) {
                     console.line_buffers[line] = console.line_buffers[line + 1 ];
-                    esp_lcd_panel_draw_bitmap(console.panel, 0, line*CHAR_HEIGHT, SCREEN_WIDTH, line*CHAR_HEIGHT + CHAR_HEIGHT,
+                    AMOLED_panel_draw_bitmap_mutex(console.panel, 0, line*CHAR_HEIGHT, SCREEN_WIDTH, line*CHAR_HEIGHT + CHAR_HEIGHT,
                                                         console.line_buffers[line]);
                 }
                 console.line_buffers[CONSOLE_ROWS - 1] = line_buffer_TS;
@@ -243,7 +258,7 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
         }
     //render and print new line
     AMOLED_render_single_line(console_log->level, console.buffer);
-    esp_lcd_panel_draw_bitmap(console.panel, 0, console.row_pos*CHAR_HEIGHT,
+    AMOLED_panel_draw_bitmap_mutex(console.panel, 0, console.row_pos*CHAR_HEIGHT,
                                                 SCREEN_WIDTH, console.row_pos*CHAR_HEIGHT + CHAR_HEIGHT,
                                                 console.line_buffers[console.row_pos]);
     }
@@ -262,14 +277,8 @@ static void task_console(void *param)
                 console.display_enable = false;
                 continue;
             }
-
-            if (xSemaphoreTake(amoled_panel_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                AMOLED_console_display(&console_log_buffer, previous_state);
-                xSemaphoreGive(amoled_panel_mutex);
-                previous_state = console_log_buffer.overwrite;
-            } else {
-                ESP_LOGW(TAG, "Failed to acquire display mutex, retrying...");
-            }
+            AMOLED_console_display(&console_log_buffer, previous_state);
+            previous_state = console_log_buffer.overwrite;
         }
         //short delay to free up the CPU for improve the overall response of the system
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -365,7 +374,7 @@ void AMOLED_DISPLAY_init() {
     //clear the contents of the screen registers
     uint16_t *refresh_buffer = heap_caps_calloc(1,CHAR_HEIGHT* LCD_H_RES * BPP_COLOR_DEPTH /8, MALLOC_CAP_DMA);
     for (int i = 0; i < LCD_V_RES/CHAR_HEIGHT ; i++) {
-        esp_lcd_panel_draw_bitmap(amoled_panel_handle, 0, CHAR_HEIGHT * i, LCD_H_RES, CHAR_HEIGHT * i + CHAR_HEIGHT, refresh_buffer);
+        AMOLED_panel_draw_bitmap_mutex(amoled_panel_handle, 0, CHAR_HEIGHT * i, LCD_H_RES, CHAR_HEIGHT * i + CHAR_HEIGHT, refresh_buffer);
         //vTaskDelay(pdMS_TO_TICKS(5));
     }
     vTaskDelay(pdMS_TO_TICKS(10));

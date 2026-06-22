@@ -133,10 +133,6 @@ static void task_pmic_management(void *param)
     ret = AXP2101_ldo_enable(AXP2101_ALDO3, true);
     if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
 
-    uint8_t status[2];
-    ret = axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, status);
-    ESP_LOGI(TAG, "AXP2101_status is %02x %02x", status[0], status[1]);
-
     AXP2101_check_status(); /* clear any pending IRQ before entering main loop */
 
     uint32_t io_num;
@@ -153,7 +149,7 @@ static void task_pmic_management(void *param)
                        && !(pmic_event_flags & AXP2101_STATUS_VBUS_GOOD)) {
                 AXP2101_sys_shutdown();
             }
-            AMOLED_console_log(INFORM, false, TAG, "GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
+            //AMOLED_console_log(INFORM, false, TAG, "GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
             AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", bat_pct);
         }
         vTaskDelay(pdMS_TO_TICKS(10));

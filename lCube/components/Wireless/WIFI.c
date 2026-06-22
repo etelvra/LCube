@@ -201,13 +201,13 @@ void WIFI_init(void)
 
 static const wifi_cmd_dispatch_entry_t s_dispatch_table[] = {
     { WIFI_CMD_SCAN,              _handler_scan              },
-    { WIFI_CMD_DEAUTH_ATTACK,     _handler_deauth_attack     },
-    { WIFI_CMD_BEACON_SPAM_START, _handler_beacon_spam_start },
-    { WIFI_CMD_BEACON_SPAM_STOP,  _handler_beacon_spam_stop  },
     { WIFI_CMD_MONITOR_START,     _handler_monitor_start     },
     { WIFI_CMD_MONITOR_STOP,      _handler_monitor_stop      },
     { WIFI_CMD_CONNECT,           _handler_connect           },
     { WIFI_CMD_DISCONNECT,        _handler_disconnect        },
+    { WIFI_CMD_DEAUTH_ATTACK,     _handler_deauth_attack     },
+    { WIFI_CMD_BEACON_SPAM_START, _handler_beacon_spam_start },
+    { WIFI_CMD_BEACON_SPAM_STOP,  _handler_beacon_spam_stop  },
     { WIFI_CMD_GET_STATUS,        _handler_get_status        },
 };
 

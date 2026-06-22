@@ -350,11 +350,13 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
 
     ESP_LOGI(TAG_SCAN, "Found %d APs", ap_num);
 
+    lvgl_lock(-1);
     if (ui_ListContainer == NULL) {
         ESP_LOGW(TAG_SCAN, "ui_ListContainer is NULL, skip UI update");
         return;
     }
     lv_obj_clean(ui_ListContainer);
+    lvgl_unlock();
 
     int valid = 0;
     for (int i = 0; i < ap_num; i++) {
@@ -368,8 +370,10 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
         char rssi_str[16];
         snprintf(rssi_str, sizeof(rssi_str), "%d dBm", ap->rssi);
 
+        lvgl_lock(-1);
         lv_obj_t *panel = LVGL_list_add_member(valid, ssid_str,
                                 authmode_to_string(ap->authmode), rssi_str);
+        lvgl_unlock();
         if (panel != NULL) valid++;
     }
 
@@ -543,7 +547,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     if (idx >= 0) {
         s_sta_list[idx].rssi        = rssi;
         s_sta_list[idx].last_seen_us = now_us;
+        lvgl_lock(-1);
         sta_panel_refresh_text(idx);
+        lvgl_unlock();
         return;
     }
 
@@ -571,7 +577,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     sta_format_elapsed(0, time_str, sizeof(time_str));
     snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
 
+    lvgl_lock(-1);
     s_sta_list[slot].panel = LVGL_list_add_member(slot, mac_str, time_str, rssi_str);
+    lvgl_unlock();
 }
 
 static void _handler_connect(const wifi_task_queue_message_t *msg)

@@ -31,7 +31,7 @@ void LVGL_WIFI_SWevent_function(lv_event_t * e)
         }
     } else {
         /* Step 3: 关闭 WiFi STA 并释放资源 */
-        WIFI_STA_deinit();
+        WIFI_deinit();
 
         /* Step 4: UI 反馈（可选） */
         if (ui_WLANName) {
@@ -84,15 +84,25 @@ void LVGL_WIFI_List_event_function(lv_event_t * e)
 void LVGL_ListMember_event_function(lv_event_t * e)
 {
 	// Your code here
-    lv_label_set_text(ui_Title, "STA List");
+    lv_obj_t *panel = lv_event_get_target(e);
+    if (panel == NULL)  return;
+
+    /* 从被点击面板的第一子对象 (SSID label) 提取 SSID */
+    if (lv_obj_get_child_cnt(panel) < 1)  return;
+
+    lv_obj_t *name_label = lv_obj_get_child(panel, 0);
+    const char *ssid = lv_label_get_text(name_label);
+
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
 
-    wifi_cmd_monitor_params_t monitor_cfg = {
-        //.ap_bssid =  ,
-        .target_channel = 0,
-
-    };
+    wifi_cmd_monitor_params_t monitor_cfg = {0};
+    monitor_cfg.target_channel = 0;
+    if (ssid != NULL) {
+        strncpy(monitor_cfg.target_ssid, ssid, SSID_MAX_LEN - 1);
+        monitor_cfg.target_ssid[SSID_MAX_LEN - 1] = '\0';
+    }
     WIFI_send_cmd(WIFI_CMD_MONITOR_START, &monitor_cfg, current_task, 0);
+    lv_label_set_text(ui_Title, "STA List");
 }
 
 void LVGL_Console_enter_function(lv_event_t * e)

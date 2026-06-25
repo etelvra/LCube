@@ -15,11 +15,12 @@ extern "C" {
 /*!             Header files
  ******************************************************************************/
 
-#define MAX_SCAN_NUM    20
-#define SSID_MAX_LEN       32
-#define CHANNEL_MIN        1
-#define CHANNEL_MAX        14
-#define MAC_LEN            6
+#define MAX_SCAN_NUM        16
+#define MAX_BSSID_PER_SSID  8
+#define SSID_MAX_LEN        32
+#define CHANNEL_MIN         1
+#define CHANNEL_MAX         14
+#define MAC_LEN             6
 
 typedef enum {
     WIFI_CMD_SCAN = 0,
@@ -69,6 +70,7 @@ typedef struct {
 /** @brief MONITOR 命令参数 */
 typedef struct {
     uint8_t  ap_bssid[MAC_LEN];
+    char     target_ssid[SSID_MAX_LEN];
     uint8_t  target_channel;
 } wifi_cmd_monitor_params_t;
 
@@ -127,7 +129,7 @@ typedef struct {
 
 
 void WIFI_init(void);
-void WIFI_STA_deinit(void);
+void WIFI_deinit(void);
 
 wifi_result_code_t WIFI_send_cmd(wifi_cmd_type_t cmd, const void *params, TaskHandle_t reply_task, uint32_t req_id);
 

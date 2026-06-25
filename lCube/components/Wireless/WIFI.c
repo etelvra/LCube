@@ -24,17 +24,20 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 #define WIFI_INITED_BIT         BIT0 //事件组整合修改
 #define WIFI_CONNECTED_BIT      BIT1
 #define WIFI_FAIL_BIT           BIT2
-#define WIFI_MONITORING_BIT     BIT3 //事件组整合修改
-#define WIFI_DEAUTH_LOOPING_BIT BIT4 //事件组整合修改
+#define WIFI_SCAN_BIT           BIT3
+#define WIFI_MONITORING_BIT     BIT4
+#define WIFI_DEAUTH_LOOPING_BIT BIT5
 
 static esp_event_handler_instance_t s_wifi_any_id = NULL;
 static esp_event_handler_instance_t s_wifi_got_ip = NULL;
 static esp_netif_t *s_sta_netif = NULL;
+static TaskHandle_t s_wifi_app_task_handle = NULL;
 
 
 static int s_retry_num = 0;
 static int s_net_index = 0;
-static uint8_t      s_target_bssid[6];
+static uint8_t      s_target_bssid_list[MAX_BSSID_PER_SSID][MAC_LEN];
+static uint8_t      s_target_bssid_count;
 static int          s_target_channel     = 1;
 
 typedef struct {
@@ -51,9 +54,7 @@ static const wifi_sta_connect_t s_wifi_sta_list[] = {
 };
 
 //int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){return 0;}
-/*===========================================================================
- * 前向声明
- *===========================================================================*/
+
 static void task_wifi_application(void *param);
 
 /* ---- 命令处理函数 ---- */
@@ -97,10 +98,23 @@ static void wifi_apply_next_ap_and_connect(void)
 
     wifi_config_t wifi_cfg;
     wifi_build_sta_config_from_index(s_net_index, &wifi_cfg);
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
-    ESP_ERROR_CHECK(esp_wifi_connect());
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg)) != ESP_OK) return;
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect()) != ESP_OK) return;
 
     AMOLED_console_log(INFORM, false, TAG, "STA: trying AP %s", s_wifi_sta_list[s_net_index].ssid);
+}
+
+static esp_err_t wifi_sta_restart(void)
+{
+    wifi_config_t sta_cfg;
+    wifi_build_sta_config_from_index(s_net_index, &sta_cfg);
+    esp_err_t ret;
+    ret = ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
+    if (ret != ESP_OK) return ret;
+    ret = ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
+    if (ret != ESP_OK) return ret;
+    ret = ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_start());
+    return ret;
 }
 
 static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -108,22 +122,33 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
+        {
+            EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
+            if (bits & (WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+                break;
+            }
             s_retry_num = 0;
             s_net_index = 0;
             wifi_apply_next_ap_and_connect();
             break;
+        }
         case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
+            if (bits & (WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+                break;
+            }
             if (s_retry_num < 5) {
                 s_retry_num++;
-                ESP_ERROR_CHECK(esp_wifi_connect());
+                esp_wifi_connect();
                 AMOLED_console_log(INFORM, true, TAG, "Retry to connect %s    %d ", s_wifi_sta_list[s_net_index].ssid, s_retry_num);
-                //AMOLED_console_log(INFORM, false, TAG, "STA: retry current AP %d/5", s_retry_num);
             } else {
                 s_net_index++;
                 s_retry_num = 0;
                 wifi_apply_next_ap_and_connect();
             }
             break;
+        }
         case WIFI_EVENT_STA_CONNECTED:
             AMOLED_console_log(INFORM, false, TAG, "STA: AP success connected, waiting IP");
             break;
@@ -179,17 +204,15 @@ void WIFI_init(void)
 
     wifi_task_queue = xQueueCreate(16, sizeof(wifi_task_queue_message_t));
 
-    xTaskCreatePinnedToCore(task_wifi_application,"task_wifi_application",8192,NULL,8,NULL,0);
+    if (s_wifi_app_task_handle == NULL) {
+        xTaskCreatePinnedToCore(task_wifi_application,"task_wifi_application",8192,NULL,8,
+                                &s_wifi_app_task_handle, 0);
+    }
 
     /* 首次配置先使用列表第一个 AP，后续断开时会自动轮询 */
     s_net_index = 0;
     s_retry_num = 0;
-    wifi_config_t sta_cfg;
-    wifi_build_sta_config_from_index(s_net_index, &sta_cfg);
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(wifi_sta_restart());
 
     xEventGroupSetBits(s_wifi_event_group, WIFI_INITED_BIT); //事件组整合修改
     AMOLED_console_log(INFORM, false, TAG, "STA: init done (non-blocking)");
@@ -232,31 +255,29 @@ static void task_wifi_application(void *param)
     while (1){
         if (xQueueReceive(wifi_task_queue, &wifi_task_buffer, portMAX_DELAY)) {//wait for queue message
             //continue;
+            wifi_cmd_handler_t handler = _lookup_handler(wifi_task_buffer.cmd_type);
+
+            if (handler != NULL) {
+                AMOLED_console_log(INFORM, false, TAG,
+                    "cmd=%d  req=%lu", (int)wifi_task_buffer.cmd_type, wifi_task_buffer.request_id);
+
+                handler(&wifi_task_buffer);
+
+                //_notify_reply(wifi_task_buffer.reply_task, wifi_task_buffer.cmd_type,WIFI_RESULT_OK, wifi_task_buffer.request_id);
+            } else {
+                AMOLED_console_log(INFORM, true, TAG,
+                    "unknown cmd=%d", (int)wifi_task_buffer.cmd_type);
+
+                //_notify_reply(wifi_task_buffer.reply_task, wifi_task_buffer.cmd_type,WIFI_RESULT_ERR_UNKNOWN_CMD, wifi_task_buffer.request_id);
+            }
         }
-        wifi_cmd_handler_t handler = _lookup_handler(wifi_task_buffer.cmd_type);
-
-        if (handler != NULL) {
-            AMOLED_console_log(INFORM, false, TAG,
-                "cmd=%d  req=%lu", (int)wifi_task_buffer.cmd_type, wifi_task_buffer.request_id);
-
-            handler(&wifi_task_buffer);
-
-            //_notify_reply(wifi_task_buffer.reply_task, wifi_task_buffer.cmd_type,WIFI_RESULT_OK, wifi_task_buffer.request_id);
-        } else {
-            AMOLED_console_log(INFORM, true, TAG,
-                "unknown cmd=%d", (int)wifi_task_buffer.cmd_type);
-
-            //_notify_reply(wifi_task_buffer.reply_task, wifi_task_buffer.cmd_type,WIFI_RESULT_ERR_UNKNOWN_CMD, wifi_task_buffer.request_id);
-        }
-        AMOLED_console_log(INFORM,false,TAG ,"wifi_task ");
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    WIFI_STA_deinit();
+    WIFI_deinit();
     vTaskDelete(NULL);
 }
 
-void WIFI_STA_deinit(void)
+void WIFI_deinit(void)
 {
     if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
         AMOLED_console_log(INFORM, false, TAG, "STA: not initialized, skip deinit");
@@ -286,6 +307,15 @@ void WIFI_STA_deinit(void)
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
+    }
+
+    if (s_wifi_app_task_handle != NULL) {
+        vTaskDelete(s_wifi_app_task_handle);
+        s_wifi_app_task_handle = NULL;
+    }
+    if (wifi_task_queue != NULL) {
+        vQueueDelete(wifi_task_queue);
+        wifi_task_queue = NULL;
     }
 
     s_retry_num = 0;
@@ -318,9 +348,12 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
 {
     const wifi_cmd_scan_params_t *p = &msg->params.scan;
 
-    if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
-        WIFI_init();
+    if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) {
+        ESP_LOGI(TAG_SCAN, "Monitor active, stopping before scan");
+        xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
+        _handler_monitor_stop(msg);
     }
+
 
     wifi_scan_config_t scan_cfg = {
         .ssid         = (p->target_ssid[0] != '\0') ? p->target_ssid : NULL,
@@ -336,6 +369,7 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG_SCAN, "Scan start failed: %s", esp_err_to_name(ret));
         //_notify_reply(msg->reply_task, msg->cmd_type, WIFI_RESULT_ERR_STATE, msg->request_id);
+        xEventGroupClearBits(s_wifi_event_group, WIFI_SCAN_BIT);
         return;
     }
 
@@ -345,6 +379,7 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG_SCAN, "Get AP records failed: %s", esp_err_to_name(ret));
         //_notify_reply(msg->reply_task, msg->cmd_type, WIFI_RESULT_ERR_STATE, msg->request_id);
+        xEventGroupClearBits(s_wifi_event_group, WIFI_SCAN_BIT);
         return;
     }
 
@@ -353,6 +388,8 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
     lvgl_lock(-1);
     if (ui_ListContainer == NULL) {
         ESP_LOGW(TAG_SCAN, "ui_ListContainer is NULL, skip UI update");
+        lvgl_unlock();
+        xEventGroupClearBits(s_wifi_event_group, WIFI_SCAN_BIT);
         return;
     }
     lv_obj_clean(ui_ListContainer);
@@ -376,8 +413,8 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
         lvgl_unlock();
         if (panel != NULL) valid++;
     }
-
-    ESP_LOGI(TAG_SCAN, "UI updated: %d APs", valid);
+    xEventGroupClearBits(s_wifi_event_group, WIFI_SCAN_BIT);
+    ESP_LOGI(TAG_SCAN, "UI updated: SCAN %d APs", valid);
 }
 
 
@@ -463,52 +500,137 @@ static void sta_panel_refresh_text(int idx)
 /* ---- 混杂模式回调 ---- */
 void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type);
 
+static bool is_bssid_zero(const uint8_t *bssid)
+{
+    for (int i = 0; i < MAC_LEN; i++) {
+        if (bssid[i] != 0) return false;
+    }
+    return true;
+}
+
 static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
 {
     const wifi_cmd_monitor_params_t *p = &msg->params.monitor;
 
-    if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) { //事件组整合修改
+    if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) {
         ESP_LOGW(TAG, "Already monitoring, stop first");
         return;
     }
 
-    memset(s_sta_list, 0, sizeof(s_sta_list));
+    lvgl_lock(-1);
+    if (ui_ListContainer == NULL) {
+        ESP_LOGW(TAG_SCAN, "ui_ListContainer is NULL, skip UI update");
+        lvgl_unlock();
+        return;
+    }
+    lv_obj_clean(ui_ListContainer);
+    lvgl_unlock();
 
-    memcpy(s_target_bssid, p->ap_bssid, 6);
-    s_target_channel = p->target_channel;
+    memset(s_sta_list, 0, sizeof(s_sta_list));
+    s_target_bssid_count = 0;
+    memset(s_target_bssid_list, 0, sizeof(s_target_bssid_list));
+
+    /* 优先级：ap_bssid 精确指定 > target_ssid 扫描查找 */
+    if (!is_bssid_zero(p->ap_bssid)) {
+        memcpy(s_target_bssid_list[0], p->ap_bssid, MAC_LEN);
+        s_target_bssid_count = 1;
+        s_target_channel = p->target_channel;
+    } else if (p->target_ssid[0] != '\0') {
+        /* 通过 SSID 扫描获取所有 BSSID */
+
+        wifi_scan_config_t scan_cfg = {
+            .ssid         = p->target_ssid,
+            .bssid        = NULL,
+            .channel      = 0,
+            .show_hidden  = false,
+            .scan_type    = WIFI_SCAN_TYPE_ACTIVE,
+            .scan_time.active.min = 80,
+            .scan_time.active.max = 200,
+        };
+
+        esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Monitor: pre-scan failed: %s", esp_err_to_name(ret));
+            return;
+        }
+
+        uint16_t ap_num = MAX_SCAN_NUM;
+        wifi_ap_record_t ap_records[MAX_SCAN_NUM];
+        ret = esp_wifi_scan_get_ap_records(&ap_num, ap_records);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Monitor: get AP records failed: %s", esp_err_to_name(ret));
+            return;
+        }
+
+        for (int i = 0; i < ap_num && s_target_bssid_count < MAX_BSSID_PER_SSID; i++) {
+            if (strncmp((char *)ap_records[i].ssid, p->target_ssid, SSID_MAX_LEN) == 0) {
+                memcpy(s_target_bssid_list[s_target_bssid_count], ap_records[i].bssid, MAC_LEN);
+                s_target_bssid_count++;
+                if (s_target_channel == 0) {
+                    s_target_channel = ap_records[i].primary;
+                }
+                ESP_LOGI(TAG, "Monitor: found BSSID " MACSTR " ch=%d for SSID %s",
+                         MAC2STR(ap_records[i].bssid), ap_records[i].primary, p->target_ssid);
+            }
+        }
+
+        if (s_target_bssid_count == 0) {
+            ESP_LOGW(TAG, "Monitor: no AP found for SSID '%s'", p->target_ssid);
+            return;
+        }
+    } else {
+        ESP_LOGW(TAG, "Monitor: no BSSID or SSID specified");
+        return;
+    }
+
+    if (s_target_channel == 0) {
+        s_target_channel = 1;
+    }
+
+    xEventGroupSetBits(s_wifi_event_group, WIFI_MONITORING_BIT);
 
     esp_wifi_disconnect();
     esp_wifi_stop();
 
     wifi_config_t cfg = {0};
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK) return;
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &cfg)) != ESP_OK) return;
     esp_wifi_set_channel(s_target_channel, WIFI_SECOND_CHAN_NONE);
 
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_cb);
     esp_wifi_start();
 
-    xEventGroupSetBits(s_wifi_event_group, WIFI_MONITORING_BIT); //事件组整合修改
-    ESP_LOGI(TAG, "Monitor started: ch=%d", s_target_channel);
+    ESP_LOGI(TAG, "Monitor started: ch=%d, bssid_count=%d", s_target_channel, s_target_bssid_count);
 }
 
 static void _handler_monitor_stop(const wifi_task_queue_message_t *msg)
 {
-    if (!(xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT)) return; //事件组整合修改
+    if (!(xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT)) return;
 
+    xEventGroupClearBits(s_wifi_event_group, WIFI_MONITORING_BIT);
+    esp_wifi_set_promiscuous_rx_cb(NULL);
     esp_wifi_set_promiscuous(false);
-    esp_wifi_stop();
+    vTaskDelay(pdMS_TO_TICKS(50));
 
+    lvgl_lock(-1);
     for (int i = 0; i < MAX_SCAN_NUM; i++) {
         if (s_sta_list[i].panel != NULL) {
             LVGL_list_delete_member(s_sta_list[i].panel);
+            s_sta_list[i].panel = NULL;
         }
+        s_sta_list[i].active = false;
     }
+    lvgl_unlock();
     memset(s_sta_list, 0, sizeof(s_sta_list));
+    s_target_bssid_count = 0;
+    memset(s_target_bssid_list, 0, sizeof(s_target_bssid_list));
 
-    WIFI_init();
-    xEventGroupClearBits(s_wifi_event_group, WIFI_MONITORING_BIT); //事件组整合修改
+    esp_wifi_stop();
+
+    if (wifi_sta_restart() != ESP_OK) {
+        ESP_LOGE(TAG, "Monitor stopped but STA restart failed");
+    }
     ESP_LOGI(TAG, "Monitor stopped");
 }
 
@@ -527,17 +649,28 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     uint8_t frame_type = (hdr->frame_control[0] >> 2) & 0x03;
     if (frame_type != 2) return;
 
-    // BSSID 过滤：只处理与目标 AP 通信的帧
-    bool frame_from_ap = (memcmp(hdr->sa, s_target_bssid, 6) == 0);
-    bool frame_to_ap   = (memcmp(hdr->da, s_target_bssid, 6) == 0);
-    if (!frame_from_ap && !frame_to_ap) return;
+    // BSSID 过滤：检查是否与任一目标 AP 通信，同时记录方向以提取 STA MAC
+    bool match = false;
+    bool frame_from_ap = false;
+    for (int i = 0; i < s_target_bssid_count; i++) {
+        if (memcmp(hdr->sa, s_target_bssid_list[i], MAC_LEN) == 0) {
+            frame_from_ap = true;
+            match = true;
+            break;
+        }
+        if (memcmp(hdr->da, s_target_bssid_list[i], MAC_LEN) == 0) {
+            frame_from_ap = false;
+            match = true;
+            break;
+        }
+    }
+    if (!match) return;
 
-    // 提取 STA MAC 和 RSSI
-    uint8_t sta_mac[6];
+    uint8_t sta_mac[MAC_LEN];
     if (frame_from_ap) {
-        memcpy(sta_mac, hdr->da, 6);
+        memcpy(sta_mac, hdr->da, MAC_LEN);
     } else {
-        memcpy(sta_mac, hdr->sa, 6);
+        memcpy(sta_mac, hdr->sa, MAC_LEN);
     }
     int8_t   rssi   = pkt->rx_ctrl.rssi;
     int64_t  now_us = esp_timer_get_time();
@@ -586,10 +719,6 @@ static void _handler_connect(const wifi_task_queue_message_t *msg)
 {
     const wifi_cmd_connect_params_t *p = &msg->params.connect;
 
-    if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
-        WIFI_init();
-    }
-
     wifi_config_t cfg = {0};
     cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     cfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
@@ -605,8 +734,8 @@ static void _handler_connect(const wifi_task_queue_message_t *msg)
         memcpy(cfg.sta.bssid, p->bssid, 6);
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
-    ESP_ERROR_CHECK(esp_wifi_connect());
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &cfg)) != ESP_OK) return;
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect()) != ESP_OK) return;
     ESP_LOGI(TAG, "Connecting to %s...", p->ssid);
 }
 
@@ -867,97 +996,3 @@ void task_wifi_beacon_spam(void *arg) {
     vTaskDelete(NULL);
 }
 
-
-
-
-/**
- * @brief 扫描周围WiFi AP并更新LVGL列表
- *
- * 该函数会：
- *   1. 以STA模式启动主动扫描（阻塞直至完成）
- *   2. 获取每个AP的 SSID、信号强度(RSSI)、认证模式
- *   3. 清空当前LVGL列表（删除所有现有成员）
- *   4. 根据扫描结果重新添加列表项（membername=SSID, membertype=加密协议, memberstate=信号强度）
- *
- * @note 调用本函数前需要确保：
- *       - WiFi已初始化并处于STA模式（例如已调用过 WIFI_STA_init()）
- *       - LVGL列表容器 ui_ListContainer 已存在（需先进入列表屏）
- *       - 建议在LVGL任务或已获取 lvgl_mutex 的上下文中调用，避免界面冲突
- */
-// void WIFI_scan_ap(void)
-// {
-//     if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
-//         WIFI_init();
-//         ESP_LOGW(TAG_SCAN, "WiFi not initialized, call WIFI_STA_init() first");
-//     }
-
-//     // 2. 设置扫描配置
-//     wifi_scan_config_t scan_config = {
-//         .ssid = NULL,               // 扫描所有SSID
-//         .bssid = NULL,             // 不限制BSSID
-//         .channel = 0,              // 0表示扫描所有信道
-//         .show_hidden = true,       // 显示隐藏AP
-//         .scan_type = WIFI_SCAN_TYPE_ACTIVE,   // 主动扫描（获取更准确信号）
-//         .scan_time.active.min = 100,          // 最小扫描时间(ms)
-//         .scan_time.active.max = 300,          // 最大扫描时间(ms)
-//     };
-
-//     // 3. 开始扫描（阻塞直至完成）
-//     ESP_LOGI(TAG_SCAN, "Starting WiFi scan...");
-//     esp_err_t ret = esp_wifi_scan_start(&scan_config, true); // true = 阻塞等待
-//     if (ret != ESP_OK) {
-//         ESP_LOGE(TAG_SCAN, "WiFi scan start failed: %s", esp_err_to_name(ret));
-//         return;
-//     }
-//     ESP_LOGI(TAG_SCAN, "WiFi scan done");
-
-//     // 4. 获取扫描到的AP数量
-//     uint16_t ap_num = MAX_SCAN_NUM;
-//     wifi_ap_record_t ap_records[MAX_SCAN_NUM];
-//     ret = esp_wifi_scan_get_ap_records(&ap_num, ap_records);
-//     if (ret != ESP_OK) {
-//         ESP_LOGE(TAG_SCAN, "Get AP records failed: %s", esp_err_to_name(ret));
-//         return;
-//     }
-//     ESP_LOGI(TAG_SCAN, "Found %d APs", ap_num);
-
-//     extern lv_obj_t *ui_ListContainer;
-//     if (ui_ListContainer == NULL) {
-//         ESP_LOGW(TAG_SCAN, "ui_ListContainer is NULL, cannot update list");
-//         return;
-//     }
-//     lv_obj_clean(ui_ListContainer);
-
-//     // 6. 遍历扫描结果，逐个添加到列表
-//     int valid_index = 0;
-//     wifi_ap_record_t *ap;
-//     for (int i = 0; i < ap_num; i++) {
-//         ap = &ap_records[i];
-//         // 跳过SSID为空的AP
-//         if (strlen((char *)ap->ssid) == 0) {
-//             continue;
-//         }
-
-//         // 构造 membername = SSID（如果SSID不可打印则显示"<Hidden>"）
-//         char ssid_str[33];
-//         snprintf(ssid_str, sizeof(ssid_str), "%.32s", (char *)ap->ssid);
-//         if (ssid_str[0] == '\0') {
-//             strcpy(ssid_str, "<Hidden>");
-//         }
-//         // 构造 membertype = 加密协议字符串
-//         const char *auth_str = authmode_to_string(ap->authmode);
-//         // 构造 memberstate = 信号强度（单位 dBm）
-//         char rssi_str[16];
-//         snprintf(rssi_str, sizeof(rssi_str), "%d dBm", ap->rssi);
-
-//         // 调用LVGL列表添加函数
-//         lv_obj_t *new_panel = LVGL_list_add_member(valid_index, ssid_str, auth_str, rssi_str);
-//         if (new_panel == NULL) {
-//             ESP_LOGE(TAG_SCAN, "Failed to add list member for AP: %s", ssid_str);
-//         } else {
-//             valid_index++;
-//         }
-//     }
-
-//     ESP_LOGI(TAG_SCAN, "List updated with %d APs", valid_index);
-// }

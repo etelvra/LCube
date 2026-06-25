@@ -22,7 +22,7 @@ QueueHandle_t lightsleep_event_queue = NULL;
 volatile bool enter_lightsleep = false;//每次读这个变量，都必须从内存重新读取每次写这个变量，都必须真实写回内存
 
 
-#define INACTIVITY_TIMEOUT_MS         (60 * 1000)  // 30秒无操作进入睡眠
+#define INACTIVITY_TIMEOUT_MS         (120 * 1000)  // 30秒无操作进入睡眠
 #define LIGHTSLEEP_WAKEUP_TIMER_US    (60*1000*1000 * 30)
 #define GPIO_WAKEUP_NUM               IOPIN_PMIC_PWR
 #define GPIO_WAKEUP_LEVEL             0

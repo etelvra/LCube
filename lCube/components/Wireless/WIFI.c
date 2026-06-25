@@ -91,9 +91,8 @@ static void wifi_build_sta_config_from_index(int idx, wifi_config_t *cfg)
 static void wifi_apply_next_ap_and_connect(void)
 {
     if (!is_valid_ap_index(s_net_index)) {
-        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        AMOLED_console_log(INFORM, false, TAG, "STA: all AP failed");
-        return;
+        s_net_index = 0;
+        s_retry_num++;
     }
 
     wifi_config_t wifi_cfg;
@@ -101,7 +100,7 @@ static void wifi_apply_next_ap_and_connect(void)
     if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg)) != ESP_OK) return;
     if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect()) != ESP_OK) return;
 
-    AMOLED_console_log(INFORM, false, TAG, "STA: trying AP %s", s_wifi_sta_list[s_net_index].ssid);
+    AMOLED_console_log(INFORM, true, TAG, "Try to connect %s for the %d time", s_wifi_sta_list[s_net_index].ssid, s_retry_num);
 }
 
 static esp_err_t wifi_sta_restart(void)
@@ -138,14 +137,12 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
             if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
                 break;
             }
-            if (s_retry_num < 5) {
-                s_retry_num++;
-                esp_wifi_connect();
-                AMOLED_console_log(INFORM, true, TAG, "Retry to connect %s    %d ", s_wifi_sta_list[s_net_index].ssid, s_retry_num);
-            } else {
+            if (s_retry_num < 2) {
                 s_net_index++;
-                s_retry_num = 0;
                 wifi_apply_next_ap_and_connect();
+            } else {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                AMOLED_console_log(INFORM, false, TAG, "STA: all AP failed");
             }
             break;
         }

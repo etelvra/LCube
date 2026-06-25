@@ -124,7 +124,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
         case WIFI_EVENT_STA_START:
         {
             EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-            if (bits & (WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
                 break;
             }
             s_retry_num = 0;
@@ -135,7 +135,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
         case WIFI_EVENT_STA_DISCONNECTED:
         {
             EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-            if (bits & (WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
                 break;
             }
             if (s_retry_num < 5) {

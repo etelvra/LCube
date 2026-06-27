@@ -8,6 +8,7 @@ extern "C" {
 
 /******************************************************************************/
 #include "panel.h"
+#include "light_sleep.h"
 #include "esp_lcd_panel_ops.h"
 #include "lvgl.h"
 #include "ui.h"

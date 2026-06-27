@@ -100,7 +100,7 @@ static void wifi_apply_next_ap_and_connect(void)
     if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg)) != ESP_OK) return;
     if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect()) != ESP_OK) return;
 
-    AMOLED_console_log(INFORM, true, TAG, "Try to connect %s for the %d time", s_wifi_sta_list[s_net_index].ssid, s_retry_num);
+    AMOLED_console_log(INFORM, true, TAG, "Try to connect %s for the %d", s_wifi_sta_list[s_net_index].ssid, s_retry_num);
 }
 
 static esp_err_t wifi_sta_restart(void)

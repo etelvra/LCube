@@ -70,6 +70,9 @@ static void lvgl_touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+    if (tp_x){
+        xQueueSendFromISR(lightsleep_event_queue, &tp_x, NULL);
+    }
 }
 
 /* -------------------- LVGL Tick 定时器回调 -------------------- */

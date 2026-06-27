@@ -22,7 +22,7 @@ QueueHandle_t lightsleep_event_queue = NULL;
 volatile bool enter_lightsleep = false;//每次读这个变量，都必须从内存重新读取每次写这个变量，都必须真实写回内存
 
 
-#define INACTIVITY_TIMEOUT_MS         (120 * 1000)  // 30秒无操作进入睡眠
+#define INACTIVITY_TIMEOUT_MS         (60 * 1000)  // 30秒无操作进入睡眠
 #define LIGHTSLEEP_WAKEUP_TIMER_US    (60*1000*1000 * 30)
 #define GPIO_WAKEUP_NUM               IOPIN_PMIC_PWR
 #define GPIO_WAKEUP_LEVEL             0
@@ -105,7 +105,8 @@ void task_lightsleep_management(void *param)
     while (1){
         if (xQueueReceive(lightsleep_event_queue, &lightsleep_wakeup_event, pdMS_TO_TICKS(1000))) {//wait for wake up event
             LightSleep_inactivity_timer_reset();
-            AMOLED_console_log(INFORM, false, TAG, "Prolong waking time due to %d", lightsleep_wakeup_event);
+            AMOLED_console_log(INFORM, true, TAG, "Prolong waking time due to %d %d",
+                            (uint16_t)(lightsleep_wakeup_event & 0xFFFF), (uint16_t)((lightsleep_wakeup_event >> 16) & 0xFFFF));
         }
         if (enter_lightsleep)
         {

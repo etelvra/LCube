@@ -89,11 +89,11 @@ typedef struct wifi_task_queue_message{
     uint32_t        request_id;
     TaskHandle_t    reply_task;
     union {
-        wifi_cmd_scan_params_t          scan;
-        wifi_cmd_deauth_params_t        deauth;
-        wifi_cmd_beacon_spam_params_t   beacon_spam;
-        wifi_cmd_monitor_params_t       monitor;
-        wifi_cmd_connect_params_t       connect;
+        wifi_cmd_scan_params_t          scan;//44ULL
+        wifi_cmd_deauth_params_t        deauth;//18ULL
+        wifi_cmd_beacon_spam_params_t   beacon_spam;//36ULL
+        wifi_cmd_monitor_params_t       monitor;//39ULL
+        wifi_cmd_connect_params_t       connect;//102ULL
     } params;
 } wifi_task_queue_message_t;
 

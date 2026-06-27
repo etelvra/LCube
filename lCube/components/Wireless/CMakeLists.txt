@@ -9,4 +9,4 @@ idf_component_register(SRCS  "TimeStamp.c" "HTTP.c" "OTA.c" "WIFI.c"
                         esp_netif
                         AMOLED
                     )
-#target_link_options(${COMPONENT_TARGET} INTERFACE "-Wl,-zmuldefs")
+target_link_options(${COMPONENT_TARGET} INTERFACE "-Wl,-zmuldefs")

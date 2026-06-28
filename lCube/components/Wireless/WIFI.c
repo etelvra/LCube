@@ -401,7 +401,7 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
         snprintf(ssid_str, sizeof(ssid_str), "%.32s", (char *)ap->ssid);
         if (ssid_str[0] == '\0') strcpy(ssid_str, "<Hidden>");
 
-        char rssi_str[16];
+        char rssi_str[12];
         snprintf(rssi_str, sizeof(rssi_str), "%d dBm", ap->rssi);
 
         lvgl_lock(-1);
@@ -421,7 +421,6 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
  * ======================================================================== */
 typedef struct {
     uint8_t  mac[6];
-    int8_t   rssi;
     int64_t  last_seen_us;
     lv_obj_t *panel;
     bool     active;
@@ -462,34 +461,21 @@ static int find_oldest_sta_slot(void)
     return oldest;
 }
 
-static void sta_format_elapsed(int64_t elapsed_us, char *buf, size_t size)
+static const char *sta_direction_str(bool from_ap)
 {
-    int64_t sec = elapsed_us / 1000000;
-    if (sec < 60) {
-        snprintf(buf, size, "%llds", sec);
-    } else if (sec < 3600) {
-        snprintf(buf, size, "%lldm%llds", sec / 60, sec % 60);
-    } else {
-        snprintf(buf, size, "%lldh%lldm", sec / 3600, (sec % 3600) / 60);
-    }
+    return from_ap ? "AP -> STA" : "STA -> AP";
 }
 
-static void sta_panel_refresh_text(int idx)
+static void sta_panel_refresh_text(int idx, bool from_ap, int8_t rssi)
 {
     lv_obj_t *panel = s_sta_list[idx].panel;
     if (panel == NULL) return;
 
-    char time_str[16];
-    int64_t now = esp_timer_get_time();
-    sta_format_elapsed(now - s_sta_list[idx].last_seen_us,
-                       time_str, sizeof(time_str));
+    char rssi_str[12];
+    snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
 
-    char rssi_str[16];
-    snprintf(rssi_str, sizeof(rssi_str), "%d dBm", s_sta_list[idx].rssi);
-
-    // 面板子对象顺序：0=lbl_name(MAC), 1=lbl_type(时间), 2=lbl_state(信号)
     if (lv_obj_get_child_cnt(panel) >= 3) {
-        lv_label_set_text(lv_obj_get_child(panel, 1), time_str);
+        lv_label_set_text(lv_obj_get_child(panel, 1), sta_direction_str(from_ap));
         lv_label_set_text(lv_obj_get_child(panel, 2), rssi_str);
     }
 }
@@ -510,7 +496,15 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
     const wifi_cmd_monitor_params_t *p = &msg->params.monitor;
 
     if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) {
-        ESP_LOGW(TAG, "Already monitoring, stop first");
+        if (xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
+            lv_label_set_text(ui_Title, "STA List");
+            xEventGroupClearBits(s_wifi_event_group, WIFI_DEAUTH_BIT);
+            ESP_LOGW(TAG, "Already deauthing, stop deauth attack");
+        }else{
+            lv_label_set_text(ui_Title, "DEAUTH List");
+            ESP_LOGW(TAG, "Already monitoring, star deauth attack");
+            xEventGroupSetBits(s_wifi_event_group, WIFI_DEAUTH_BIT);
+        }
         return;
     }
 
@@ -671,7 +665,7 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
         memcpy(sta_mac, hdr->sa, MAC_LEN);
     }
 
-    if(1){//(xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
+    if(xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
         WIFI_deauth_attack(s_target_bssid_list[i], sta_mac, 0x0002);
     }
 
@@ -680,10 +674,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     // 去重：已存在的 STA 仅更新面板文字
     int idx = find_sta_by_mac(sta_mac);
     if (idx >= 0) {
-        s_sta_list[idx].rssi        = rssi;
         s_sta_list[idx].last_seen_us = now_us;
         lvgl_lock(-1);
-        sta_panel_refresh_text(idx);
+        sta_panel_refresh_text(idx, frame_from_ap, rssi);
         lvgl_unlock();
         return;
     }
@@ -701,19 +694,17 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
 
     // 填充新条目
     memcpy(s_sta_list[slot].mac, sta_mac, 6);
-    s_sta_list[slot].rssi         = rssi;
     s_sta_list[slot].last_seen_us = now_us;
     s_sta_list[slot].active       = true;
 
     char mac_str[18];
-    char time_str[16];
-    char rssi_str[16];
+    char rssi_str[12];
     snprintf(mac_str, sizeof(mac_str), MACSTR, MAC2STR(sta_mac));
-    sta_format_elapsed(0, time_str, sizeof(time_str));
     snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
 
     lvgl_lock(-1);
-    s_sta_list[slot].panel = LVGL_list_add_member(slot, mac_str, time_str, rssi_str);
+    s_sta_list[slot].panel = LVGL_list_add_member(slot, mac_str,
+                                                 sta_direction_str(frame_from_ap), rssi_str);
     lvgl_unlock();
 }
 

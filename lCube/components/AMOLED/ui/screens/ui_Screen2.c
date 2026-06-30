@@ -18,6 +18,10 @@ lv_obj_t * ui_BatteryButton = NULL;
 lv_obj_t * ui_BatteryName = NULL;
 lv_obj_t * ui_BatterySwitch = NULL;
 lv_obj_t * ui_BatterylogPNG = NULL;
+lv_obj_t * ui_CloudSyncButton = NULL;
+lv_obj_t * ui_Cloud_Sync = NULL;
+lv_obj_t * ui_CloudSyncSwitch = NULL;
+lv_obj_t * ui_CloudSyncPNG = NULL;
 // event funtions
 void ui_event_Screen2(lv_event_t * e)
 {
@@ -73,6 +77,26 @@ void ui_event_BatterySwitch(lv_event_t * e)
 
     if(event_code == LV_EVENT_VALUE_CHANGED) {
         LVGL_PMIC_SWevent_function(e);
+    }
+}
+
+void ui_event_CloudSyncButton(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_change(&ui_ConsoleScreen, LV_SCR_LOAD_ANIM_FADE_ON, 16, 0, &ui_ConsoleScreen_screen_init);
+        LVGL_Cloud_Sync_function(e);
+    }
+}
+
+void ui_event_CloudSyncSwitch(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_VALUE_CHANGED) {
+        LVGL_Sync_SWevent_function(e);
+        _ui_screen_change(&ui_ConsoleScreen, LV_SCR_LOAD_ANIM_FADE_ON, 16, 16, &ui_ConsoleScreen_screen_init);
     }
 }
 
@@ -232,11 +256,62 @@ void ui_Screen2_screen_init(void)
     lv_obj_add_flag(ui_BatterylogPNG, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_clear_flag(ui_BatterylogPNG, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
+    ui_CloudSyncButton = lv_btn_create(ui_Screen2);
+    lv_obj_set_width(ui_CloudSyncButton, 320);
+    lv_obj_set_height(ui_CloudSyncButton, 120);
+    lv_obj_set_x(ui_CloudSyncButton, 63);
+    lv_obj_set_y(ui_CloudSyncButton, 488);
+    lv_obj_add_flag(ui_CloudSyncButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+    lv_obj_clear_flag(ui_CloudSyncButton, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+    lv_obj_set_style_radius(ui_CloudSyncButton, 40, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_CloudSyncButton, lv_color_hex(0x202020), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_CloudSyncButton, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_color(ui_CloudSyncButton, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(ui_CloudSyncButton, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_CloudSyncButton, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(ui_CloudSyncButton, 255, LV_PART_MAIN | LV_STATE_CHECKED);
+
+    ui_Cloud_Sync = lv_label_create(ui_CloudSyncButton);
+    lv_obj_set_width(ui_Cloud_Sync, 160);
+    lv_obj_set_height(ui_Cloud_Sync, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Cloud_Sync, 48);
+    lv_obj_set_y(ui_Cloud_Sync, 0);
+    lv_obj_set_align(ui_Cloud_Sync, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_Cloud_Sync, "Cloud Sync");
+    lv_obj_set_style_text_font(ui_Cloud_Sync, &lv_font_montserrat_28, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_CloudSyncSwitch = lv_switch_create(ui_CloudSyncButton);
+    lv_obj_set_width(ui_CloudSyncSwitch, 100);
+    lv_obj_set_height(ui_CloudSyncSwitch, 100);
+    lv_obj_set_align(ui_CloudSyncSwitch, LV_ALIGN_LEFT_MID);
+    lv_obj_set_style_bg_color(ui_CloudSyncSwitch, lv_color_hex(0x323232), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_CloudSyncSwitch, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_set_style_bg_color(ui_CloudSyncSwitch, lv_color_hex(0x323232), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_CloudSyncSwitch, 255, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_CloudSyncSwitch, lv_color_hex(0x1A80CC), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(ui_CloudSyncSwitch, 255, LV_PART_INDICATOR | LV_STATE_CHECKED);
+
+    lv_obj_set_style_bg_color(ui_CloudSyncSwitch, lv_color_hex(0x323232), LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_CloudSyncSwitch, 255, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_CloudSyncSwitch, lv_color_hex(0x1A80CC), LV_PART_KNOB | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(ui_CloudSyncSwitch, 255, LV_PART_KNOB | LV_STATE_CHECKED);
+
+    ui_CloudSyncPNG = lv_img_create(ui_CloudSyncSwitch);
+    lv_img_set_src(ui_CloudSyncPNG, &ui_img_334164688);
+    lv_obj_set_width(ui_CloudSyncPNG, LV_SIZE_CONTENT);   /// 48
+    lv_obj_set_height(ui_CloudSyncPNG, LV_SIZE_CONTENT);    /// 48
+    lv_obj_set_align(ui_CloudSyncPNG, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_CloudSyncPNG, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
+    lv_obj_clear_flag(ui_CloudSyncPNG, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
     lv_obj_add_event_cb(ui_WLANSwitch, ui_event_WLANSwitch, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_WIFIButton, ui_event_WIFIButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_BluetoothButton, ui_event_BluetoothButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_BatterySwitch, ui_event_BatterySwitch, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_BatteryButton, ui_event_BatteryButton, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_CloudSyncSwitch, ui_event_CloudSyncSwitch, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_CloudSyncButton, ui_event_CloudSyncButton, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_Screen2, ui_event_Screen2, LV_EVENT_ALL, NULL);
 
 }
@@ -259,5 +334,9 @@ void ui_Screen2_screen_destroy(void)
     ui_BatteryName = NULL;
     ui_BatterySwitch = NULL;
     ui_BatterylogPNG = NULL;
+    ui_CloudSyncButton = NULL;
+    ui_Cloud_Sync = NULL;
+    ui_CloudSyncSwitch = NULL;
+    ui_CloudSyncPNG = NULL;
 
 }

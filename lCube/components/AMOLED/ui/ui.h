@@ -38,6 +38,7 @@ extern lv_obj_t * ui____initial_actions0;
 LV_IMG_DECLARE(ui_img_wifi64_png);    // assets/wifi64.png
 LV_IMG_DECLARE(ui_img_bluetooth64_png);    // assets/bluetooth64.png
 LV_IMG_DECLARE(ui_img_battery64_png);    // assets/battery64.png
+LV_IMG_DECLARE(ui_img_334164688);    // assets/cloud-sync64.png
 
 // FONTS
 LV_FONT_DECLARE(ui_font_Font1);

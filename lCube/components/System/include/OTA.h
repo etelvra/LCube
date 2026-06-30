@@ -14,6 +14,7 @@ extern "C" {
 
 void OTA_verify_version(void);
 void task_ota(void *param);
+void OTA_request_cancel(void);
 
 
 /******************************************************************************/

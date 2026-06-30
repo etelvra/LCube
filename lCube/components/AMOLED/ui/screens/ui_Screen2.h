@@ -32,6 +32,12 @@ extern lv_obj_t * ui_BatteryName;
 extern void ui_event_BatterySwitch(lv_event_t * e);
 extern lv_obj_t * ui_BatterySwitch;
 extern lv_obj_t * ui_BatterylogPNG;
+extern void ui_event_CloudSyncButton(lv_event_t * e);
+extern lv_obj_t * ui_CloudSyncButton;
+extern lv_obj_t * ui_Cloud_Sync;
+extern void ui_event_CloudSyncSwitch(lv_event_t * e);
+extern lv_obj_t * ui_CloudSyncSwitch;
+extern lv_obj_t * ui_CloudSyncPNG;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

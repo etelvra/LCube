@@ -6,6 +6,7 @@
 #include "ui.h"
 #include "WIFI.h"
 #include "light_sleep.h"
+#include "OTA.h"
 #include "panel.h"
 void LVGL_WIFI_SWevent_function(lv_event_t * e)
 {
@@ -43,27 +44,6 @@ void LVGL_WIFI_SWevent_function(lv_event_t * e)
     }
 }
 
-void LVGL_PMIC_SWevent_function(lv_event_t * e)
-{
-	// Your code here
-    if (e == NULL) {
-        return;
-    }
-
-    lv_obj_t *sw = lv_event_get_target(e);
-    if (sw == NULL) {
-        return;
-    }
-
-    bool is_on = lv_obj_has_state(sw, LV_STATE_CHECKED);
-
-    if (is_on) {
-        enter_lightsleep = true;
-    } else {
-
-    }
-}
-
 void LVGL_WIFI_List_event_function(lv_event_t * e)
 {
 	// Your code here
@@ -80,6 +60,12 @@ void LVGL_WIFI_List_event_function(lv_event_t * e)
 
     WIFI_send_cmd(WIFI_CMD_SCAN, &scan_cfg, current_task, 0);
 }
+
+void LVGL_ListExit_event_function(lv_event_t * e)
+{
+	// Your code here
+}
+
 
 void LVGL_ListMember_event_function(lv_event_t * e)
 {
@@ -105,6 +91,27 @@ void LVGL_ListMember_event_function(lv_event_t * e)
     lv_label_set_text(ui_Title, "STA List");
 }
 
+void LVGL_PMIC_SWevent_function(lv_event_t * e)
+{
+	// Your code here
+    if (e == NULL) {
+        return;
+    }
+
+    lv_obj_t *sw = lv_event_get_target(e);
+    if (sw == NULL) {
+        return;
+    }
+
+    bool is_on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+
+    if (is_on) {
+        enter_lightsleep = true;
+    } else {
+
+    }
+}
+
 void LVGL_Console_enter_function(lv_event_t * e)
 {
 	// Your code here
@@ -118,4 +125,42 @@ void LVGL_Console_exit_function(lv_event_t * e)
 {
 	// Your code here
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_DISABLE");
+}
+
+void LVGL_Cloud_Sync_function(lv_event_t * e)
+{
+	// Your code here
+    vTaskDelay(50);
+    AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
+}
+
+static TaskHandle_t s_ota_task_handle = NULL;
+
+void LVGL_Sync_SWevent_function(lv_event_t * e)
+{
+	// Your code here
+    if (e == NULL) {
+        return;
+    }
+
+    lv_obj_t *sw = lv_event_get_target(e);
+    if (sw == NULL) {
+        return;
+    }
+
+    bool is_on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+
+    if (is_on) {
+        if (s_ota_task_handle == NULL) {
+            BaseType_t ret = xTaskCreate(&task_ota, "ota_task", 8192, NULL, 5, &s_ota_task_handle);
+            if (ret != pdPASS) {
+                AMOLED_console_log(ERROR, false, "ui", "Failed to create OTA task");
+            }
+        }
+    } else {
+        if (s_ota_task_handle != NULL) {
+            OTA_request_cancel();
+            s_ota_task_handle = NULL;
+        }
+    }
 }

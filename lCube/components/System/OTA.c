@@ -24,6 +24,7 @@
 static const char *TAG = "OTA";
 /*an ota data write buffer ready to write to the flash*/
 static char ota_write_data[BUFFSIZE + 1] = { 0 };
+static volatile bool s_ota_cancel_requested = false;
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
 
@@ -40,8 +41,8 @@ static void __attribute__((noreturn)) task_fatal_error(void) {
 }
 static void print_sha256 (const uint8_t *image_hash, const char *label);
 static void http_cleanup(esp_http_client_handle_t client);
-static void infinite_loop(void);
 static bool diagnostic(void);
+static void cancellable_wait(void);
 
 void OTA_verify_version(void)
 {
@@ -92,6 +93,7 @@ void task_ota(void *param)
     esp_ota_handle_t update_handle = 0 ;
     const esp_partition_t *update_partition = NULL;
 
+    s_ota_cancel_requested = false;
     AMOLED_console_log(INFORM,false,TAG, "Starting OTA task.....");
 
     const esp_partition_t *configured = esp_ota_get_boot_partition();
@@ -183,14 +185,14 @@ void task_ota(void *param)
                             ESP_LOGW(TAG, "Previously, there was an attempt to launch the firmware with %s version, but it failed.", invalid_app_info.version);
                             ESP_LOGW(TAG, "The firmware has been rolled back to the previous version.");
                             http_cleanup(client);
-                            infinite_loop();
+                            cancellable_wait();
                         }
                     }
 #ifndef CONFIG_EXAMPLE_SKIP_VERSION_CHECK
                     if (memcmp(new_app_info.version, running_app_info.version, sizeof(new_app_info.version)) == 0) {
                         ESP_LOGW(TAG, "Current running version is the same as a new. We will not continue the update.");
                         http_cleanup(client);
-                        infinite_loop();
+                        cancellable_wait();
                     }
 #endif
 
@@ -274,14 +276,24 @@ static void http_cleanup(esp_http_client_handle_t client)
     esp_http_client_cleanup(client);
 }
 
-static void infinite_loop(void)
+static void cancellable_wait(void)
 {
     int i = 0;
     AMOLED_console_log(INFORM,false,TAG, "When a new firmware is available on the server, press the reset button to download it");
-    while(1) {
+    while (!s_ota_cancel_requested) {
         AMOLED_console_log(INFORM,false,TAG, "Waiting for a new firmware ... %d", ++i);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
+    AMOLED_console_log(INFORM,false,TAG, "OTA monitoring cancelled by user");
+    vTaskDelete(NULL);
+    while (1) {
+        ;
+    }
+}
+
+void OTA_request_cancel(void)
+{
+    s_ota_cancel_requested = true;
 }
 
 static void print_sha256 (const uint8_t *image_hash, const char *label)

@@ -13,6 +13,7 @@ SET(SOURCES components/ui_comp_wlan.c
     images/ui_img_wifi64_png.c
     images/ui_img_bluetooth64_png.c
     images/ui_img_battery64_png.c
+    images/ui_img_334164688.c
     fonts/ui_font_Font1.c)
 
 add_library(ui ${SOURCES})

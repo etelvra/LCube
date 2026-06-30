@@ -351,7 +351,6 @@ static void _handler_scan(const wifi_task_queue_message_t *msg)
         _handler_monitor_stop(msg);
     }
 
-
     wifi_scan_config_t scan_cfg = {
         .ssid         = (p->target_ssid[0] != '\0') ? p->target_ssid : NULL,
         .bssid        = NULL,

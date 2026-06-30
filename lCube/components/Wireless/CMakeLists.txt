@@ -1,4 +1,4 @@
-idf_component_register(SRCS  "TimeStamp.c" "HTTP.c" "OTA.c" "WIFI.c"
+idf_component_register(SRCS  "TimeStamp.c" "HTTP.c" "WIFI.c"
                     INCLUDE_DIRS "./includes"
                     REQUIRES
                         driver

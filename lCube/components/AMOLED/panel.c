@@ -105,19 +105,13 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
     vsnprintf(char_buffer, sizeof(char_buffer), text, args);
     va_end(args);
 
-    pixel_t *single_line_buffer = (pixel_t *)heap_caps_calloc(1,strlen(char_buffer) * 128 * byte_per_pixel, MALLOC_CAP_DMA);
+    pixel_t *single_line_buffer = (pixel_t *)heap_caps_malloc(LCD_H_RES * CHAR_HEIGHT * byte_per_pixel, MALLOC_CAP_DMA);
     if (!single_line_buffer) {
         ESP_LOGE(TAG, "Failed to allocate  single_line_buffer");
         return;
     }
-    //Clear the line_buffer
-    // for (int i = 0; i < strlen(char_buffer) * CHAR_HEIGHT; i++) {
-    //     #if BPP_COLOR_DEPTH == 16
-    //     ((pixel_t *)single_line_buffer)[i] = bg_color;
-    //     #elif BPP_COLOR_DEPTH == 24
-    //     memcpy(&single_line_buffer[i * byte_per_pixel], &bg_color, byte_per_pixel);
-    //     #endif
-    // }
+    char_buffer[LCD_H_RES/CHAR_WIDTH - 1] = '\0';//prevent overflow
+    printf("%s\n",char_buffer);
 
     //Render character
     for (int col = 0; col < strlen(char_buffer); col++) {
@@ -129,13 +123,19 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
         if (portrait){//横竖屏不同渲染
             for (int x = 0; x < 16; x++) {
                 for (int y = 0; y < 8; y++) {
+                    //render the current pixe
+                    int pos = (((x/8)*8+y) * strlen(char_buffer)* CHAR_WIDTH) + (col * CHAR_WIDTH) + x%8;
                     if (glyph[x] & (1 <<  y )) {
-                        int pos = (((x/8)*8+y) * strlen(char_buffer)* CHAR_WIDTH) + (col * CHAR_WIDTH) + x%8;
-                        //render the current pixe
                         #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)single_line_buffer)[pos] = fg_color;
                         #elif BPP_COLOR_DEPTH == 24
                         memcpy(&single_line_buffer[pos * byte_per_pixel], &fg_color, byte_per_pixel);
+                        #endif
+                    }else{
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)single_line_buffer)[pos] = bg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&single_line_buffer[pos * byte_per_pixel], &bg_color, byte_per_pixel);
                         #endif
                     }
                 }
@@ -143,13 +143,19 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
         }else{
             for (int x = 0; x < 16; x++) {
                 for (int y = 0; y < 8; y++) {
+                    //        整字符位置坐标+ 字符列转行坐标 + 字符行从上而下坐标
+                    int pos = (strlen(char_buffer)-col)*128 -x%8*CHAR_HEIGHT-CHAR_HEIGHT + ((x/8)*8+y) ;
                     if (glyph[x] & (1 <<  y )) {
-                        //        整字符位置坐标+ 字符列转行坐标 + 字符行从上而下坐标
-                        int pos = (strlen(char_buffer)-col)*128 -x%8*CHAR_HEIGHT-CHAR_HEIGHT + ((x/8)*8+y) ;
                         #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)single_line_buffer)[pos] = fg_color;
                         #elif BPP_COLOR_DEPTH == 24
                         memcpy(&single_line_buffer[pos * byte_per_pixel], &fg_color, byte_per_pixel);
+                        #endif
+                    }else{
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)single_line_buffer)[pos] = bg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&single_line_buffer[pos * byte_per_pixel], &bg_color, byte_per_pixel);
                         #endif
                     }
                 }
@@ -304,10 +310,12 @@ esp_err_t AMOLED_console_init(esp_lcd_panel_handle_t panel) {
 
 //clear the contents of the screen registers
 void AMOLED_refresh(void) {
+    esp_lcd_panel_swap_xy(amoled_panel_handle, 0);
+    esp_lcd_panel_mirror(amoled_panel_handle, 1, 1);
     uint16_t *refresh_buffer = heap_caps_calloc(1,CHAR_HEIGHT* LCD_H_RES * BPP_COLOR_DEPTH /8, MALLOC_CAP_DMA);
     if (xSemaphoreTake(amoled_panel_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        for (int i = 0; i < 384/CHAR_HEIGHT ; i++) {
+        for (int i = 0; i < LCD_V_RES/CHAR_HEIGHT ; i++) {
             esp_lcd_panel_draw_bitmap(amoled_panel_handle, 0, CHAR_HEIGHT * i, LCD_H_RES, CHAR_HEIGHT * i + CHAR_HEIGHT, refresh_buffer);
             vTaskDelay(pdMS_TO_TICKS(1));
         }
@@ -317,6 +325,8 @@ void AMOLED_refresh(void) {
             ESP_LOGW(TAG, "Failed to acquire display mutex");
     }
     heap_caps_free(refresh_buffer);
+    esp_lcd_panel_swap_xy(amoled_panel_handle, 1);
+    esp_lcd_panel_mirror(amoled_panel_handle, 1, 0);
 }
 
 void AMOLED_DISPLAY_init() {

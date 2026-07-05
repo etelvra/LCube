@@ -112,19 +112,17 @@ void LVGL_PMIC_SWevent_function(lv_event_t * e)
     }
 }
 
-void LVGL_Console_enter_function(lv_event_t * e)
+void LVGL_PMIC_monitor_function(lv_event_t * e)
 {
 	// Your code here
-    vTaskDelay(50);
-    AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
-    // uint8_t target_ap_mac[6] = {0x90, 0x0F, 0x0C, 0xC7, 0xC2, 0xBF};
-    // WIFI_deauth_attack(target_ap_mac, 0x0002);
+    pmic_monitor = true;
 }
 
 void LVGL_Console_exit_function(lv_event_t * e)
 {
 	// Your code here
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_DISABLE");
+    pmic_monitor = false;
 }
 
 void LVGL_Cloud_Sync_function(lv_event_t * e)

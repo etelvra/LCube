@@ -12,7 +12,7 @@ extern "C" {
 
 void LVGL_WIFI_List_event_function(lv_event_t * e);
 void LVGL_WIFI_SWevent_function(lv_event_t * e);
-void LVGL_Console_enter_function(lv_event_t * e);
+void LVGL_PMIC_monitor_function(lv_event_t * e);
 void LVGL_PMIC_SWevent_function(lv_event_t * e);
 void LVGL_Cloud_Sync_function(lv_event_t * e);
 void LVGL_Sync_SWevent_function(lv_event_t * e);

@@ -67,7 +67,7 @@ void ui_event_BatteryButton(lv_event_t * e)
 
     if(event_code == LV_EVENT_CLICKED) {
         _ui_screen_change(&ui_ConsoleScreen, LV_SCR_LOAD_ANIM_FADE_ON, 2, 0, &ui_ConsoleScreen_screen_init);
-        LVGL_Console_enter_function(e);
+        LVGL_PMIC_monitor_function(e);
     }
 }
 

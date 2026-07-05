@@ -15,6 +15,7 @@
 static const char* TAG = "PMIC";
 
 bool i2c_bus_initialized = false;
+bool pmic_monitor = false;
 i2c_bus_handle_t i2c_bus_handle = NULL;
 static i2c_bus_device_handle_t axp2101_i2c_device_handle = NULL;
 static QueueHandle_t pmic_event_queue = NULL;
@@ -52,7 +53,7 @@ static void IRAM_ATTR PMIC_IRQfunction_handler(void* arg)
     xQueueSendFromISR(pmic_event_queue, &gpio_num, NULL);
 }
 static void task_pmic_management(void *param);
-static uint32_t AXP2101_check_status(void);
+static esp_err_t AXP2101_check_status(axp2101_status_t *axp2101_status);
 
 void PMIC_init(void)
 {
@@ -133,22 +134,25 @@ static void task_pmic_management(void *param)
     ret = AXP2101_ldo_enable(AXP2101_ALDO3, true);
     if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
 
-    AXP2101_check_status(); /* clear any pending IRQ before entering main loop */
+    axp2101_status_t pmic_status;
+    AXP2101_check_status(&pmic_status); /* clear any pending IRQ before entering main loop */
 
     uint32_t io_num;
-    uint8_t bat_pct;
-    uint32_t pmic_event_flags;
 
     while (1) {
         if (xQueueReceive(pmic_event_queue, &io_num, portMAX_DELAY)) {
-            bat_pct = AXP2101_bat_percentage();
-            pmic_event_flags = AXP2101_check_status();
-            if (bat_pct != 0xFF && bat_pct <= 10) {
+            AXP2101_check_status(&pmic_status);
+            uint8_t bat_pct = pmic_status.battery_pct;
+            if (bat_pct > 0 && bat_pct <= 10) {
                 AXP2101_sys_shutdown();
-            } else if (bat_pct != 0xFF && bat_pct <= 20
-                       && !(pmic_event_flags & AXP2101_STATUS_VBUS_GOOD)) {
+            } else if (bat_pct > 0 && bat_pct <= 20
+                       && !(pmic_status.pmu_status_flags & AXP2101_PMU_STS_VBUS_GOOD)) {
                 AXP2101_sys_shutdown();
             }
+            if (pmic_monitor){
+                PMIC_status_list_refresh(&pmic_status);
+            }
+
             //AMOLED_console_log(INFORM, false, TAG, "GPIO[%"PRIu32"] intr, val: %d\n", io_num, gpio_get_level(io_num));
             AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", bat_pct);
         }
@@ -473,126 +477,274 @@ esp_err_t AXP2101_ldo_set_voltage(axp2101_ldo_channel_t ldo_ch, uint16_t voltage
     return ESP_OK;
 }
 
-//Status check item structure
-typedef struct pmic_check_item{
-    uint8_t byte_idx;
-    uint8_t mask;
-    const char *message;
-    uint32_t event_flag;
-    axp2101_event_handler_t handler;
-} pmic_check_item_t;
 
-//IRQ Status Checklist
-static pmic_check_item_t axp2101_IRQstatus_checks[] = {
-    // status of byte0 — IRQ_STATUS1 (REG48H)
-    {0, 0x80, "SOC drop to Warning level",         AXP2101_EVENT_SOC_WARNING,    NULL},
-    {0, 0x40, "SOC drop to Shutdown level",        AXP2101_EVENT_SOC_SHUTDOWN,   NULL},
-    {0, 0x20, "Gague Watchdog Timeout IRQ",        AXP2101_EVENT_GAUGE_WDT_TIMEOUT, NULL},
-    {0, 0x10, "Gague New SOC IRQ",                 AXP2101_EVENT_GAUGE_NEW_SOC,  NULL},
-    {0, 0x0A, "Battery Over Temperature",          AXP2101_EVENT_BAT_OVER_TEMP,  NULL},
-    {0, 0x05, "Battery Under Temperature",         AXP2101_EVENT_BAT_UNDER_TEMP, NULL},
-
-    // status of byte1 — IRQ_STATUS2 (REG49H)
-    {1, 0x80, "VBUS Insert",                       AXP2101_EVENT_VBUS_INSERT,    NULL},
-    {1, 0x40, "VBUS Remove",                       AXP2101_EVENT_VBUS_REMOVE,    NULL},
-    {1, 0x20, "Battery Insert",                    AXP2101_EVENT_BAT_INSERT,     NULL},
-    {1, 0x10, "Battery Remove",                    AXP2101_EVENT_BAT_REMOVE,     NULL},
-    {1, 0x0F, "POWERON Press",                     AXP2101_EVENT_POWERON_PRESS,  NULL},
-
-    // status of byte2 — IRQ_STATUS3 (REG4AH)
-    {2, 0x80, "Watchdog Expire",                   AXP2101_EVENT_WDT_EXPIRE,     NULL},
-    {2, 0x40, "LDO Over Current",                  AXP2101_EVENT_LDO_OC,         NULL},
-    {2, 0x20, "BATFET Over Current Protection IRQ", AXP2101_EVENT_BATFET_OCP,     NULL},
-    {2, 0x10, "Battary Charge done",               AXP2101_EVENT_CHARGE_DONE,    NULL},
-    {2, 0x08, "Battery Charge start",              AXP2101_EVENT_CHARGE_START,   NULL},
-    {2, 0x04, "DIE Over Temperature level1 IRQ",   AXP2101_EVENT_DIE_OVERTEMP,   NULL},
-    {2, 0x02, "Charger Safety Timer1/2 expire",    AXP2101_EVENT_CHG_TIMER_EXPIRE, NULL},
-    {2, 0x01, "Battery Over Voltage Protection",   AXP2101_EVENT_BAT_OVP,        NULL},
-
-    // status of byte3 — STATUS1 (REG00H)
-    {3, 0x20, "status   VBUS GOOD",                AXP2101_STATUS_VBUS_GOOD,     NULL},
-    {3, 0x10, "status   BATFET open",              AXP2101_STATUS_BATFET_OPEN,   NULL},
-    {3, 0x08, "status   Battery Present",          AXP2101_STATUS_BAT_PRESENT,   NULL},
-    {3, 0x04, "status   Battery in Active Mode",   AXP2101_STATUS_BAT_ACTIVE,    NULL},
-    {3, 0x02, "status   In Thermal Regulation",    AXP2101_STATUS_THERMAL_REG,   NULL},
-    {3, 0x01, "status   In Current Limit State",   AXP2101_STATUS_CURRENT_LIMIT, NULL},
-
-    // status of byte4 — STATUS2 (REG01H)
-    {4, 0x10, "status   System is Power ON",       AXP2101_STATUS_SYS_POWERON,   NULL},
-    {4, 0x08, "status   In VINDPM",                AXP2101_STATUS_VINDPM,        NULL},
-
-    {0xFF, 0, NULL, 0, NULL}
-};
-
-esp_err_t AXP2101_register_handler(uint32_t event_flag, axp2101_event_handler_t handler)
+static esp_err_t AXP2101_check_status(axp2101_status_t *axp2101_status)
 {
-    if (!handler || !event_flag) return ESP_ERR_INVALID_ARG;
-    for (int i = 0; axp2101_IRQstatus_checks[i].message != NULL; i++) {
-        if (axp2101_IRQstatus_checks[i].event_flag == event_flag) {
-            axp2101_IRQstatus_checks[i].handler = handler;
-            return ESP_OK;
+    if (!axp2101_status) return ESP_ERR_INVALID_ARG;
+    memset(axp2101_status, 0, sizeof(*axp2101_status));
+
+    esp_err_t ret, first_err = ESP_OK;
+    uint8_t  buf[11];
+    uint16_t raw;
+    uint8_t  v;
+
+    /*Ensure ADC channels are enabled (REG30 bits 5:0)*/
+    buf[0] = 0x3F;
+    axp2101_i2c_write_bytes(AXP2101_ADC_CHANNEL_CTRL, 1, buf);
+
+    /* STATUS1 + STATUS2 → pmu_status_flags (REG00~01, 2 B)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, buf);
+    if (ret == ESP_OK) {
+        axp2101_status->pmu_status_flags = buf[0] | ((uint16_t)buf[1] << 8);
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* Die OTP threshold (REG13[2:1] → 115/125/135 °C)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_DIE_TEMP_CTRL, 1, buf);
+    if (ret == ESP_OK) {
+        static const uint8_t otp_map[] = {115, 125, 135, 0};
+        axp2101_status->die_otp_threshold = otp_map[(buf[0] >> 1) & 3];
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* PWRON / PWROFF source (REG20~21, 2 B)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_PWRON_STATUS, 2, buf);
+    if (ret == ESP_OK) {
+        axp2101_status->pwr_on_source  = buf[0];
+        axp2101_status->pwr_off_source = buf[1];
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* ADC data (REG34~3D, 10 B consecutive)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_ADC_DATA_RELUST0, 10, buf);
+    if (ret == ESP_OK) {
+        /* VBAT: buf[0]=REG34_h, buf[1]=REG35_l → 14-bit, 0.5 mV/LSB */
+        raw = ((buf[0] & 0x3F) << 8) | buf[1];
+        axp2101_status->vbat_mv = raw;
+
+        /* TS pin raw ADC: buf[2]=REG36_h, buf[3]=REG37_l */
+        raw = ((buf[2] & 0x3F) << 8) | buf[3];
+        axp2101_status->ts_mv = raw / 2;
+
+        /* VBUS: buf[4]=REG38_h, buf[5]=REG39_l */
+        raw = ((buf[4] & 0x3F) << 8) | buf[5];
+        axp2101_status->vbus_mv = raw;
+
+        /* VSYS: buf[6]=REG3A_h, buf[7]=REG3B_l */
+        raw = ((buf[6] & 0x3F) << 8) | buf[7];
+        axp2101_status->vsys_mv = raw ;
+
+        /* Die temp: buf[8]=REG3C_h, buf[9]=REG3D_l → 0.1 °C units */
+        raw = ((buf[8] & 0x3F) << 8) | buf[9];
+        axp2101_status->die_temp = 220 + (7274 - (int32_t)raw) / 2;
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* IRQ Status (REG48~4A, 3 B) → then clear*/
+    ret = axp2101_i2c_read_bytes(AXP2101_IRQ_STATUS1, AXP2101_IRQ_STATUS_CNT, buf);
+    if (ret == ESP_OK) {
+        axp2101_status->irq_status_flags = buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16);
+
+        /* Write-1-to-clear all IRQ latches */
+        static const uint8_t clear[3] = {0xFF, 0xFF, 0xFF};
+        axp2101_i2c_write_bytes(AXP2101_IRQ_STATUS1, 3, clear);
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* Charger config (REG61~64, 4 B) ──
+     * Stored as raw register nibbles since decoded mA/mV overflow uint8_t
+     * for ichg (max 1000 mA) and cv_voltage (max 4400 mV). */
+    ret = axp2101_i2c_read_bytes(AXP2101_IPRECHG_SET, 4, buf);
+    if (ret == ESP_OK) {
+        /* NOTE: iprechg_ma / iterm_ma hold decoded mA (0~200 fits uint8_t).
+         *        ichg_ma / cv_voltage_mv hold raw register values because
+         *        decoded values overflow uint8_t.  */
+        v = buf[0] & 0x0F;                         /* REG61[3:0] */
+        axp2101_status->iprechg_ma = (v <= 8) ? v * 25 : 0;
+        v = buf[1] & 0x1F;                         /* REG62[4:0] */
+        axp2101_status->ichg_ma0 = (v <= 8) ? v * 2.5 : 20 + (v-8)*10;
+        v = buf[2] & 0x0F;                         /* REG63[3:0] */
+        axp2101_status->iterm_ma = (v <= 8) ? v * 25 : 0;
+        v = buf[3] & 0x07;                         /* REG64[2:0] */
+        axp2101_status->cv_voltage_mv00 = 39 + v;
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* DCDC on/off + voltage (REG80~86, 7 B)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_DC_ONOFF_DVM_CTRL, 7, buf);
+    if (ret == ESP_OK) {
+        /* buf[0]=REG80: DCDC1~5 enable bits[4:0] */
+        for (int i = 0; i < 5; i++) {
+            axp2101_status->dcdc[i].enabled = (buf[0] >> i) & 1;
         }
-    }
-    return ESP_ERR_NOT_FOUND;
+
+        /* DCDC1: buf[2]=REG82[4:0], 1500~3400 mV, 100 mV/step */
+        axp2101_status->dcdc[0].voltage_mv = 1500 + (buf[2] & 0x1F) * 100;
+
+        /* DCDC2: buf[3]=REG83[6:0] (bit7=DVM, not voltage) */
+        v = buf[3] & 0x7F;
+        if      (v <= 70)  axp2101_status->dcdc[1].voltage_mv = 500  + v * 10;
+        else if (v <= 87)  axp2101_status->dcdc[1].voltage_mv = 1220 + (v - 71) * 20;
+
+        /* DCDC3: buf[4]=REG84[6:0] */
+        v = buf[4] & 0x7F;
+        if      (v <= 70)  axp2101_status->dcdc[2].voltage_mv = 500  + v * 10;
+        else if (v <= 87)  axp2101_status->dcdc[2].voltage_mv = 1220 + (v - 71) * 20;
+        else if (v <= 107) axp2101_status->dcdc[2].voltage_mv = 1600 + (v - 88) * 100;
+
+        /* DCDC4: buf[5]=REG85[6:0] */
+        v = buf[5] & 0x7F;
+        if      (v <= 70)  axp2101_status->dcdc[3].voltage_mv = 500  + v * 10;
+        else if (v <= 102) axp2101_status->dcdc[3].voltage_mv = 1220 + (v - 71) * 20;
+
+        /* DCDC5: buf[6]=REG86[4:0], 1400~3700mV(100mV/step) or 0x19=1200mV */
+        v = buf[6] & 0x1F;
+        axp2101_status->dcdc[4].voltage_mv = (v == 0x19) ? 1200 : 1400 + v * 100;
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* LDO on/off + voltage (REG90~9A, 11 B)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_LDO_ONOFF_CTRL0, 11, buf);
+    if (ret == ESP_OK) {
+        /* buf[0]=REG90: ALDO1~4, BLDO1~2, CPUSLDO, DLDO1 enable [7:0] */
+        for (int i = 0; i < 8; i++) {
+            axp2101_status->ldo[i].enabled = (buf[0] >> i) & 1;
+        }
+        /* buf[1]=REG91[0]: DLDO2 enable */
+        axp2101_status->ldo[8].enabled = buf[1] & 1;
+
+        /* ALDO1~4 BLDO1~2 voltages: buf[2]~buf[7] = REG92~97,  500~3500mV, 100mV/step */
+        for (int i = 0; i < 6; i++) {
+            axp2101_status->ldo[i].voltage_mv = 500 + (buf[2 + i] & 0x1F) * 100;
+        }
+
+        /* CPUSLDO: buf[8]=REG98, 500~1400mV, 50mV/step */
+        axp2101_status->ldo[6].voltage_mv = 500 + (buf[8] & 0x1F) * 50;
+        /* DLDO1:   buf[9]=REG99, 500~3300mV, 100mV/step */
+        axp2101_status->ldo[7].voltage_mv = 500 + (buf[9] & 0x1F) * 100;
+        /* DLDO2:   buf[10]=REG9A, 500~1400mV, 50mV/step */
+        axp2101_status->ldo[8].voltage_mv = 500 + (buf[10] & 0x1F) * 50;
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    /* Battery percentage (REGA4)*/
+    ret = axp2101_i2c_read_bytes(AXP2101_BATTERY_PERCENTAGE, 1, buf);
+    if (ret == ESP_OK) {
+        axp2101_status->battery_pct = buf[0];
+    } else if (first_err == ESP_OK) { first_err = ret; }
+
+    return first_err;
 }
 
-esp_err_t AXP2101_unregister_handler(uint32_t event_flag)
+#define pmu_s(flag) (axp2101_status->pmu_status_flags & (flag) ? "YES" : "NO")
+#define irq_s(flag) (axp2101_status->irq_status_flags & (flag) ? "YES" : "NO")
+
+static char *rail_fmt(const axp2101_power_rail_t *r, char *buf, size_t sz)
 {
-    for (int i = 0; axp2101_IRQstatus_checks[i].message != NULL; i++) {
-        if (axp2101_IRQstatus_checks[i].event_flag == event_flag) {
-            axp2101_IRQstatus_checks[i].handler = NULL;
-            return ESP_OK;
-        }
+    if (r->enabled) {
+        snprintf(buf, sz, "%umV", r->voltage_mv);
+        return buf;
     }
-    return ESP_ERR_NOT_FOUND;
+    return "[OFF]";
 }
 
-static esp_err_t AXP2101_IRQStatus_clear(void)
+static const char *chg_stat_str(uint16_t pmu_status_flags)
 {
-    static const uint8_t data[3] = {0xFF, 0xFF, 0xFF};
-    ESP_RETURN_ON_ERROR(axp2101_i2c_write_bytes(AXP2101_IRQ_STATUS1, sizeof(data), data),
-                        TAG, "clear IRQ status failed");
-    return ESP_OK;
+    switch (pmu_status_flags & AXP2101_PMU_STS_CHG_STAT_MASK) {
+    case AXP2101_PMU_STS_CHG_STAT_TRI:     return "Trickle chg";
+    case AXP2101_PMU_STS_CHG_STAT_PRE:     return "Pre-charge";
+    case AXP2101_PMU_STS_CHG_STAT_CC:      return "Const current";
+    case AXP2101_PMU_STS_CHG_STAT_CV:      return "Const voltage";
+    case AXP2101_PMU_STS_CHG_STAT_DONE:    return "Charge done";
+    case AXP2101_PMU_STS_CHG_STAT_NOT_CHG: return "Not charging";
+    default:                               return "---";
+    }
 }
 
-static uint32_t AXP2101_check_status(void)
+static const char *pwr_on_src_str(uint8_t src)
 {
-    uint32_t flags = 0;
-    uint8_t status_data[AXP2101_IRQ_STATUS_CNT + 2];
+    if (src & (1 << 5)) return "EN High";   /* EN pin always high */
+    if (src & (1 << 4)) return "Bat Ins";   /* Battery insert & good */
+    if (src & (1 << 3)) return "Bat>3.3";  /* VBAT > 3.3V while charging */
+    if (src & (1 << 2)) return "VBUS In";   /* VBUS insert & good */
+    if (src & (1 << 1)) return "IRQ Low";   /* IRQ pin pull-down */
+    if (src & (1 << 0)) return "POK on";       /* PWRON key on-level */
+    return "---";
+}
 
-    if (axp2101_i2c_read_bytes(AXP2101_IRQ_STATUS1, AXP2101_IRQ_STATUS_CNT, status_data) != ESP_OK) {
-        return 0;
-    }
-    if (axp2101_i2c_read_bytes(AXP2101_STATUS1, 2, &status_data[AXP2101_IRQ_STATUS_CNT]) != ESP_OK) {
-        return 0;
-    }
-    AXP2101_IRQStatus_clear();
+static const char *pwr_off_src_str(uint8_t src)
+{
+    if (src & (1 << 7)) return "Die OTP";   /* Die over-temp level2 */
+    if (src & (1 << 6)) return "DCDC OV";   /* DCDC over-voltage */
+    if (src & (1 << 5)) return "DCDC UV";   /* DCDC under-voltage */
+    if (src & (1 << 4)) return "VBUS OV";   /* VBUS over-voltage */
+    if (src & (1 << 3)) return "VSYS UV";   /* VSYS under-voltage */
+    if (src & (1 << 2)) return "EN Low";    /* EN pin always low */
+    if (src & (1 << 1)) return "Soft";      /* Software shutdown */
+    if (src & (1 << 0)) return "POK off";       /* PWRON key off-level */
+    return "---";
+}
 
-    pmic_check_item_t *item = axp2101_IRQstatus_checks;
-    while (item->message != NULL) {
-        bool triggered = false;
-        if ((item->mask & (item->mask - 1)) != 0) {
-            if (status_data[item->byte_idx] & item->mask) {
-                triggered = true;
-            }
-        } else {
-            if (status_data[item->byte_idx] & item->mask) {
-                triggered = true;
-            }
-        }
-
-        if (triggered) {
-            AMOLED_console_log(INFORM, false, TAG, item->message);
-            if (item->event_flag) {
-                flags |= item->event_flag;
-            }
-            if (item->handler) {
-                item->handler(item->event_flag);
-            }
-        }
-        item++;
+static const char *bat_dir_str(uint16_t pmu_status_flags)
+{
+    if (!(pmu_status_flags & AXP2101_PMU_STS_BAT_PRESENT)) {
+        return "Absent";
     }
-    return flags;
+    switch (pmu_status_flags & AXP2101_PMU_STS_BAT_DIR_MASK) {
+    case AXP2101_PMU_STS_BAT_DIR_STANDBY:   return "Standby";
+    case AXP2101_PMU_STS_BAT_DIR_CHARGE:    return "Charge";
+    case AXP2101_PMU_STS_BAT_DIR_DISCHARGE: return "Discharge";
+    default:                                return "---";
+    }
+}
+
+void PMIC_status_list_refresh(const axp2101_status_t *axp2101_status)
+{
+    esp_lcd_panel_swap_xy(amoled_panel_handle, 0);
+    esp_lcd_panel_mirror(amoled_panel_handle, 1, 1);
+
+    uint16_t y = axp2101_status->vbat_mv%5;
+    AMOLED_print_single_line(0, y, true, "                 PMIC: AXP2101                 "); y += 16;
+    AMOLED_print_single_line(0, y, true, "==============================================="); y += 16;
+    AMOLED_print_single_line(0, y, true, "        VBUS: %4umV        VSYS: %4umV      ", axp2101_status->vbus_mv, axp2101_status->vsys_mv); y += 16;
+    AMOLED_print_single_line(0, y, true, "       SOC_level: %-8s  Watchdog: %-7s   ",
+        axp2101_status->irq_status_flags & (AXP2101_IRQ_STS_SOC_WARNING) ? "Warning" : "GOOD", axp2101_status->irq_status_flags & (AXP2101_IRQ_STS_WDT_EXPIRE) ? "Expire" : "OK"); y += 16;
+    AMOLED_print_single_line(0, y, true, "       SYSTEM: %s                        ", axp2101_status->pmu_status_flags&AXP2101_PMU_STS_SYS_POWERON ? "powerON" : "powerOFF"); y += 16;
+    AMOLED_print_single_line(0, y, true, "     PWRON: %-8s        PWROFF: %-8s     ", pwr_on_src_str(axp2101_status->pwr_on_source), pwr_off_src_str(axp2101_status->pwr_off_source)); y += 16;
+    AMOLED_print_single_line(0, y, true, "------------------- Battery -------------------"); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Battery: %-9s    %3u%%  %4umV /%d.%dV",
+        bat_dir_str(axp2101_status->pmu_status_flags), axp2101_status->battery_pct, axp2101_status->vbat_mv, axp2101_status->cv_voltage_mv00 / 10, axp2101_status->cv_voltage_mv00 % 10); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Active Mode: %-3s     BAT_OVP: %-3s       ", pmu_s(AXP2101_PMU_STS_BAT_ACTIVE), irq_s(AXP2101_IRQ_STS_BAT_OVP)); y += 16;
+    AMOLED_print_single_line(0, y, true, "     BATFET open: %-3s     BATFET_OCP: %-3s    ", pmu_s(AXP2101_PMU_STS_BATFET_OPEN), irq_s(AXP2101_IRQ_STS_BATFET_OCP)); y += 16;
+    AMOLED_print_single_line(0, y, true, "------------------ Charging -------------------"); y += 16;
+    AMOLED_print_single_line(0, y, true, "     VBUS: %-7s    %-14s          ", axp2101_status->pmu_status_flags & AXP2101_PMU_STS_VBUS_GOOD ? "GOOD" : "Removed", chg_stat_str(axp2101_status->pmu_status_flags)); y += 16;
+    AMOLED_print_single_line(0, y, true, "    IPRECHG: %3umA  ICHG: %3u0mA  ITERM: %3umA ", axp2101_status->iprechg_ma, axp2101_status->ichg_ma0, axp2101_status->iterm_ma); y += 16;
+    AMOLED_print_single_line(0, y, true, "----------------- Temperature -----------------"); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Die: %4u / %3u'C   TS(BAT): %4umV  ", axp2101_status->die_temp, axp2101_status->die_otp_threshold, axp2101_status->ts_mv); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Thermal Regulation:     %-3s             ", pmu_s(AXP2101_PMU_STS_THERMAL_REG)); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Current Limit State:    %-3s             ", pmu_s(AXP2101_PMU_STS_CURRENT_LIMIT)); y += 16;
+    AMOLED_print_single_line(0, y, true, "     DIE Over Temperature: %-3s  VINDPM: %-3s  ", irq_s(AXP2101_IRQ_STS_DIE_OVERTEMP_L1), pmu_s(AXP2101_PMU_STS_VINDPM)); y += 16;
+    AMOLED_print_single_line(0, y, true, "----------------- Power Rails -----------------"); y += 16;
+    {
+    char rb[3][8];
+    AMOLED_print_single_line(0, y, true, "     DCDC1 %-6s  DCDC2 %-6s  DCDC3 %-6s",
+        rail_fmt(&axp2101_status->dcdc[0], rb[0], sizeof(rb[0])),
+        rail_fmt(&axp2101_status->dcdc[1], rb[1], sizeof(rb[1])),
+        rail_fmt(&axp2101_status->dcdc[2], rb[2], sizeof(rb[2]))); y += 16;
+    AMOLED_print_single_line(0, y, true, "     DCDC4 %-6s  DCDC5 %-6s",
+        rail_fmt(&axp2101_status->dcdc[3], rb[0], sizeof(rb[0])),
+        rail_fmt(&axp2101_status->dcdc[4], rb[1], sizeof(rb[1]))); y += 16;
+    AMOLED_print_single_line(0, y, true, "     ALDO1 %-6s  ALDO2 %-6s  ALDO3 %-6s",
+        rail_fmt(&axp2101_status->ldo[0], rb[0], sizeof(rb[0])),
+        rail_fmt(&axp2101_status->ldo[1], rb[1], sizeof(rb[1])),
+        rail_fmt(&axp2101_status->ldo[2], rb[2], sizeof(rb[2]))); y += 16;
+    AMOLED_print_single_line(0, y, true, "     ALDO4 %-6s  BLDO1 %-6s  BLDO2 %-6s",
+        rail_fmt(&axp2101_status->ldo[3], rb[0], sizeof(rb[0])),
+        rail_fmt(&axp2101_status->ldo[4], rb[1], sizeof(rb[1])),
+        rail_fmt(&axp2101_status->ldo[5], rb[2], sizeof(rb[2]))); y += 16;
+    AMOLED_print_single_line(0, y, true, "    CPUSLD %-6s  DLDO1 %-6s  DLDO2 %-6s",
+        rail_fmt(&axp2101_status->ldo[6], rb[0], sizeof(rb[0])),
+        rail_fmt(&axp2101_status->ldo[7], rb[1], sizeof(rb[1])),
+        rail_fmt(&axp2101_status->ldo[8], rb[2], sizeof(rb[2]))); y += 16;
+    }
+    AMOLED_print_single_line(0, y, true, "     LDO Over Current:       %-3s             ", irq_s(AXP2101_IRQ_STS_LDO_OC)); y += 16;
+    AMOLED_print_single_line(0, y, true, "----------------- Protection ------------------"); y += 16;
+    AMOLED_print_single_line(0, y, true, "      [OK] No active protection alerts         "); y += 16;
+
+    esp_lcd_panel_swap_xy(amoled_panel_handle, 1);
+    esp_lcd_panel_mirror(amoled_panel_handle, 1, 0);
 }
 
 

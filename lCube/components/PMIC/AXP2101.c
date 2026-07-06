@@ -147,6 +147,9 @@ static void task_pmic_management(void *param)
     if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
     ret = AXP2101_ldo_enable(AXP2101_ALDO3, true);
     if (ret != ESP_OK) ESP_LOGW(TAG, "LDO init_fail");
+    AXP2101_ldo_enable(AXP2101_ALDO1, 0);
+    AXP2101_ldo_enable(AXP2101_BLDO1, 0);
+    AXP2101_ldo_enable(AXP2101_CPUSLDO, 0);
 
     axp2101_status_t pmic_status;
     AXP2101_check_status(&pmic_status); /* clear any pending IRQ before entering main loop */
@@ -166,10 +169,9 @@ static void task_pmic_management(void *param)
                 xTimerChangePeriod(pmic_timer, pdMS_TO_TICKS(10000), 0);
             }
             AXP2101_check_status(&pmic_status);
-            uint8_t bat_pct = pmic_status.battery_pct;
-            if (bat_pct > 0 && bat_pct <= 10) {
+            if (pmic_status.battery_pct > 0 && pmic_status.battery_pct <= 10) {
                 AXP2101_sys_shutdown();
-            } else if (bat_pct > 0 && bat_pct <= 20
+            } else if (pmic_status.battery_pct > 0 && pmic_status.battery_pct <= 20
                        && !(pmic_status.pmu_status_flags & AXP2101_PMU_STS_VBUS_GOOD)) {
                 AXP2101_sys_shutdown();
             }
@@ -177,7 +179,8 @@ static void task_pmic_management(void *param)
                 y_pos = PMIC_status_list_refresh(&pmic_status);
                 if (io_num == IOPIN_PMIC_IRQ ) PMIC_irq_log_refresh(y_pos, &pmic_status);
             }
-            //AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", bat_pct);
+            AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", pmic_status.battery_pct);
+            if (io_num == IOPIN_PMIC_IRQ ) AMOLED_console_log(WARN, false, TAG, "AXP2101 IRQ triggered\n");
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -713,7 +716,7 @@ static uint16_t PMIC_status_list_refresh(const axp2101_status_t *axp2101_status)
     uint16_t y = axp2101_status->vbat_mv%5;
     AMOLED_print_single_line(0, y, true, "                 PMIC: AXP2101                 "); y += 16;
     AMOLED_print_single_line(0, y, true, "==============================================="); y += 16;
-    AMOLED_print_single_line(0, y, true, "      VBUS: %4u mV       VSYS: %4u mV          ", axp2101_status->vbus_mv, axp2101_status->vsys_mv); y += 16;
+    AMOLED_print_single_line(0, y, true, "      VBUS: %4umV        VSYS: %4umV           ", axp2101_status->vbus_mv, axp2101_status->vsys_mv); y += 16;
     AMOLED_print_single_line(0, y, true, "      SYSTEM: %s                               ", axp2101_status->pmu_status_flags&AXP2101_PMU_STS_SYS_POWERON ? "powerON" : "powerOFF"); y += 16;
     AMOLED_print_single_line(0, y, true, "      PWRON: %-8s     PWROFF: %-8s             ", pwr_on_src_str(axp2101_status->pwr_on_source), pwr_off_src_str(axp2101_status->pwr_off_source)); y += 16;
     AMOLED_print_single_line(0, y, true, "------------------- Battery -------------------"); y += 16;
@@ -725,8 +728,8 @@ static uint16_t PMIC_status_list_refresh(const axp2101_status_t *axp2101_status)
     AMOLED_print_single_line(0, y, true, "     IINDPM:  %-3s       VINDPM:  %-3s   ", pmu_s(AXP2101_PMU_STS_CURRENT_LIMIT), pmu_s(AXP2101_PMU_STS_VINDPM)); y += 16;
     AMOLED_print_single_line(0, y, true, "    IPRECHG: %3umA  ICHG: %3u0mA  ITERM: %3umA ", axp2101_status->iprechg_ma, axp2101_status->ichg_ma0, axp2101_status->iterm_ma); y += 16;
     AMOLED_print_single_line(0, y, true, "----------------- Temperature -----------------"); y += 16;
-    AMOLED_print_single_line(0, y, true, "     Die: %4u / %3u'C   TS(BAT): %4u mV ", axp2101_status->die_temp, axp2101_status->die_otp_threshold, axp2101_status->ts_mv); y += 16;
-    AMOLED_print_single_line(0, y, true, "     Thermal Regulation:     %-3s             ", pmu_s(AXP2101_PMU_STS_THERMAL_REG)); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Die: %4u / %3u'C   TS(BAT): %4umV         ", axp2101_status->die_temp, axp2101_status->die_otp_threshold, axp2101_status->ts_mv); y += 16;
+    AMOLED_print_single_line(0, y, true, "     Thermal Regulation:     %-3s              ", pmu_s(AXP2101_PMU_STS_THERMAL_REG)); y += 16;
     AMOLED_print_single_line(0, y, true, "----------------- Power Rails -----------------"); y += 16;
     {
     char rb[3][8];
@@ -765,8 +768,8 @@ static void PMIC_irq_log_refresh(uint16_t y_star, const axp2101_status_t *axp210
     uint16_t y = y_star;
     for(int irq=0; irq<32; irq++) {
         if (axp2101_status->irq_status_flags & (1UL << irq)) {
-        AMOLED_print_single_line(0, y, true, "     %-48s", axp2101_irq_status_strings[irq]); y += 16;
-        irq_log_num++;
+            AMOLED_print_single_line(0, y, true, "     %-48s", axp2101_irq_status_strings[irq]); y += 16;
+            irq_log_num++;
         if (irq_log_num > 6) break;
       }
     }

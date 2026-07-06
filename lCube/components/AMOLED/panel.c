@@ -53,7 +53,7 @@ esp_err_t AMOLED_panel_draw_bitmap_mutex(esp_lcd_panel_handle_t panel, int x_sta
         ESP_LOGW(TAG, "Amoled not initialized");
         return ESP_FAIL;
     }
-    if (xSemaphoreTake(amoled_panel_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(amoled_panel_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
         esp_err_t ret = esp_lcd_panel_draw_bitmap(panel, x_start, y_start, x_end, y_end, color_data);
         xSemaphoreGive(amoled_panel_mutex);
         return ret;
@@ -178,6 +178,12 @@ static void AMOLED_render_single_line(uint8_t level, const char *text) {//const:
     {
     case ERROR:
         fg_color = PIXEL_ERROR;
+        break;
+    case WARN:
+        fg_color = PIXEL_WARN;
+        break;
+    case DEBUG:
+        fg_color = PIXEL_INFO;
         break;
     default:
         fg_color = PIXEL_WHITE;//(pixel_t){0xFB, 0xE4, 0xEE};
@@ -397,7 +403,7 @@ void AMOLED_DISPLAY_init() {
 
     AMOLED_console_log(INFORM, false ,"","   The display panel has been initialized");
     vTaskDelay(pdMS_TO_TICKS(50));
-    AMOLED_console_log(ERROR, false ,"","--------Start initializing the system---------");
+    AMOLED_console_log(DEBUG, false ,"","--------Start initializing the system---------");
     //test_draw_bitmap(amoled_panel_handle);
 
     // esp_lcd_panel_del(amoled_panel_handle);

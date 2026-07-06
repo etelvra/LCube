@@ -32,6 +32,7 @@ typedef uint16_t pixel_t;
 #define PIXEL_WHITE     0xFFFF
 #define PIXEL_ERROR     COLOR_TO_PIXEL(0xF800)
 #define PIXEL_INFO      COLOR_TO_PIXEL(0x15CF)
+#define PIXEL_WARN      COLOR_TO_PIXEL(0xE722)
 #elif BPP_COLOR_DEPTH == 24
 typedef struct {
     uint8_t red, green, blue;

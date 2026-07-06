@@ -11,18 +11,19 @@ extern "C" {
 
 /*!             Header files
  ******************************************************************************/
-#include "AXP2101.h"
+#include "freertos/queue.h"
 #include "i2c_bus.h"
 
+extern QueueHandle_t pmic_event_queue;
 extern i2c_bus_handle_t i2c_bus_handle;
 extern bool i2c_bus_initialized;
-extern bool pmic_monitor;
+
 esp_err_t i2c_bus_init(void);
 
 void PMIC_init(void);
 
 uint8_t AXP2101_bat_percentage(void);
-esp_err_t AXP2101_amoled_turn_off(void);
+
 esp_err_t AXP2101_sys_shutdown(void);
 
 /**
@@ -46,76 +47,6 @@ esp_err_t AXP2101_charger_init(uint16_t chg_current_ma, uint16_t chg_voltage_mv,
  * @param shutdown_pct 关机阈值 (0~15%), 默认 1%
  */
 esp_err_t AXP2101_low_battery_config(uint8_t warn_pct, uint8_t shutdown_pct);
-
-/* ========================================================================
- * PMU Status flags — use with axp2101_status_t.pmu_status_flags (uint16_t)
- * Bit positions mirror REG00H (STATUS1) and REG01H (STATUS2).
- * ======================================================================== */
-
-/* REG00H — STATUS1 (bits 7:0 of pmu_status_flags) */
-#define AXP2101_PMU_STS_CURRENT_LIMIT       (1U << 0)   /* In current-limit state */
-#define AXP2101_PMU_STS_THERMAL_REG         (1U << 1)   /* In thermal regulation */
-#define AXP2101_PMU_STS_BAT_ACTIVE          (1U << 2)   /* Battery in Active Mode */
-#define AXP2101_PMU_STS_BAT_PRESENT         (1U << 3)   /* Battery present */
-#define AXP2101_PMU_STS_BATFET_OPEN         (1U << 4)   /* BATFET open (1=open) */
-#define AXP2101_PMU_STS_VBUS_GOOD           (1U << 5)   /* VBUS good */
-/* Bit 7:6 reserved (VBUS good indication multi-level) */
-
-/* REG01H — STATUS2 (bits 15:8 of pmu_status_flags) */
-#define AXP2101_PMU_STS_CHG_STAT_SHIFT      8
-#define AXP2101_PMU_STS_CHG_STAT_MASK       (7U << 8)   /* REG01[2:0] Charging status */
-#define AXP2101_PMU_STS_CHG_STAT_TRI        (0U << 8)   /* 000: Trickle charge */
-#define AXP2101_PMU_STS_CHG_STAT_PRE        (1U << 8)   /* 001: Pre-charge */
-#define AXP2101_PMU_STS_CHG_STAT_CC         (2U << 8)   /* 010: Constant current */
-#define AXP2101_PMU_STS_CHG_STAT_CV         (3U << 8)   /* 011: Constant voltage */
-#define AXP2101_PMU_STS_CHG_STAT_DONE       (4U << 8)   /* 100: Charge done */
-#define AXP2101_PMU_STS_CHG_STAT_NOT_CHG    (5U << 8)   /* 101: Not charging */
-
-#define AXP2101_PMU_STS_VINDPM              (1U << 11)  /* REG01[3] VINDPM active */
-#define AXP2101_PMU_STS_SYS_POWERON         (1U << 12)  /* REG01[4] System power on */
-
-#define AXP2101_PMU_STS_BAT_DIR_SHIFT       13
-#define AXP2101_PMU_STS_BAT_DIR_MASK        (3U << 13)  /* REG01[6:5] Bat current direction */
-#define AXP2101_PMU_STS_BAT_DIR_STANDBY     (0U << 13)  /* 00: Standby */
-#define AXP2101_PMU_STS_BAT_DIR_CHARGE      (1U << 13)  /* 01: Charge */
-#define AXP2101_PMU_STS_BAT_DIR_DISCHARGE   (2U << 13)  /* 10: Discharge */
-/* Bit 15 reserved (REG01[7]) */
-
-/* ========================================================================
- * IRQ Status flags — use with axp2101_status_t.irq_status_flags (uint32_t)
- * Bit positions mirror REG48H (IRQ_STATUS1), REG49H (IRQ_STATUS2),
- * REG4AH (IRQ_STATUS3).
- * ======================================================================== */
-
-/* REG48H — IRQ_STATUS1 (bits 7:0 of irq_status_flags) */
-#define AXP2101_IRQ_STS_BAT_WORK_UNDER_TEMP (1UL << 0)  /* REG48[0] */
-#define AXP2101_IRQ_STS_BAT_WORK_OVER_TEMP  (1UL << 1)  /* REG48[1] */
-#define AXP2101_IRQ_STS_BAT_CHG_UNDER_TEMP  (1UL << 2)  /* REG48[2] */
-#define AXP2101_IRQ_STS_BAT_CHG_OVER_TEMP   (1UL << 3)  /* REG48[3] */
-#define AXP2101_IRQ_STS_GAUGE_NEW_SOC       (1UL << 4)  /* REG48[4] */
-#define AXP2101_IRQ_STS_GAUGE_WDT_TIMEOUT   (1UL << 5)  /* REG48[5] */
-#define AXP2101_IRQ_STS_SOC_SHUTDOWN        (1UL << 6)  /* REG48[6] */
-#define AXP2101_IRQ_STS_SOC_WARNING         (1UL << 7)  /* REG48[7] */
-
-/* REG49H — IRQ_STATUS2 (bits 15:8 of irq_status_flags) */
-#define AXP2101_IRQ_STS_PWRON_POS_EDGE      (1UL << 8)  /* REG49[0] */
-#define AXP2101_IRQ_STS_PWRON_NEG_EDGE      (1UL << 9)  /* REG49[1] */
-#define AXP2101_IRQ_STS_PWRON_LONG_PRESS    (1UL << 10) /* REG49[2] */
-#define AXP2101_IRQ_STS_PWRON_SHORT_PRESS   (1UL << 11) /* REG49[3] */
-#define AXP2101_IRQ_STS_BAT_REMOVE          (1UL << 12) /* REG49[4] */
-#define AXP2101_IRQ_STS_BAT_INSERT          (1UL << 13) /* REG49[5] */
-#define AXP2101_IRQ_STS_VBUS_REMOVE         (1UL << 14) /* REG49[6] */
-#define AXP2101_IRQ_STS_VBUS_INSERT         (1UL << 15) /* REG49[7] */
-
-/* REG4AH — IRQ_STATUS3 (bits 23:16 of irq_status_flags) */
-#define AXP2101_IRQ_STS_BAT_OVP             (1UL << 16) /* REG4A[0] */
-#define AXP2101_IRQ_STS_CHG_TIMER_EXPIRE    (1UL << 17) /* REG4A[1] */
-#define AXP2101_IRQ_STS_DIE_OVERTEMP_L1     (1UL << 18) /* REG4A[2] */
-#define AXP2101_IRQ_STS_CHARGE_START        (1UL << 19) /* REG4A[3] */
-#define AXP2101_IRQ_STS_CHARGE_DONE         (1UL << 20) /* REG4A[4] */
-#define AXP2101_IRQ_STS_BATFET_OCP          (1UL << 21) /* REG4A[5] */
-#define AXP2101_IRQ_STS_LDO_OC              (1UL << 22) /* REG4A[6] */
-#define AXP2101_IRQ_STS_WDT_EXPIRE          (1UL << 23) /* REG4A[7] */
 
 /*  DCDC power rail control  */
 /* DCDC channel identifiers (REG80H bit positions) */
@@ -235,8 +166,107 @@ typedef struct axp2101_status{
 
 } axp2101_status_t;
 
+/* ========================================================================
+ * PMU Status flags — use with axp2101_status_t.pmu_status_flags (uint16_t)
+ * Bit positions mirror REG00H (STATUS1) and REG01H (STATUS2).
+ * ======================================================================== */
 
-void PMIC_status_list_refresh(const axp2101_status_t *axp2101_status);
+/* REG00H — STATUS1 (bits 7:0 of pmu_status_flags) */
+#define AXP2101_PMU_STS_CURRENT_LIMIT       (1U << 0)   /* In current-limit state */
+#define AXP2101_PMU_STS_THERMAL_REG         (1U << 1)   /* In thermal regulation */
+#define AXP2101_PMU_STS_BAT_ACTIVE          (1U << 2)   /* Battery in Active Mode */
+#define AXP2101_PMU_STS_BAT_PRESENT         (1U << 3)   /* Battery present */
+#define AXP2101_PMU_STS_BATFET_OPEN         (1U << 4)   /* BATFET open (1=open) */
+#define AXP2101_PMU_STS_VBUS_GOOD           (1U << 5)   /* VBUS good */
+/* Bit 7:6 reserved (VBUS good indication multi-level) */
+
+/* REG01H — STATUS2 (bits 15:8 of pmu_status_flags) */
+#define AXP2101_PMU_STS_CHG_STAT_SHIFT      8
+#define AXP2101_PMU_STS_CHG_STAT_MASK       (7U << 8)   /* REG01[2:0] Charging status */
+#define AXP2101_PMU_STS_CHG_STAT_TRI        (0U << 8)   /* 000: Trickle charge */
+#define AXP2101_PMU_STS_CHG_STAT_PRE        (1U << 8)   /* 001: Pre-charge */
+#define AXP2101_PMU_STS_CHG_STAT_CC         (2U << 8)   /* 010: Constant current */
+#define AXP2101_PMU_STS_CHG_STAT_CV         (3U << 8)   /* 011: Constant voltage */
+#define AXP2101_PMU_STS_CHG_STAT_DONE       (4U << 8)   /* 100: Charge done */
+#define AXP2101_PMU_STS_CHG_STAT_NOT_CHG    (5U << 8)   /* 101: Not charging */
+
+#define AXP2101_PMU_STS_VINDPM              (1U << 11)  /* REG01[3] VINDPM active */
+#define AXP2101_PMU_STS_SYS_POWERON         (1U << 12)  /* REG01[4] System power on */
+
+#define AXP2101_PMU_STS_BAT_DIR_SHIFT       13
+#define AXP2101_PMU_STS_BAT_DIR_MASK        (3U << 13)  /* REG01[6:5] Bat current direction */
+#define AXP2101_PMU_STS_BAT_DIR_STANDBY     (0U << 13)  /* 00: Standby */
+#define AXP2101_PMU_STS_BAT_DIR_CHARGE      (1U << 13)  /* 01: Charge */
+#define AXP2101_PMU_STS_BAT_DIR_DISCHARGE   (2U << 13)  /* 10: Discharge */
+/* Bit 15 reserved (REG01[7]) */
+
+/* ========================================================================
+ * IRQ Status flags — use with axp2101_status_t.irq_status_flags (uint32_t)
+ * Bit positions mirror REG48H (IRQ_STATUS1), REG49H (IRQ_STATUS2),
+ * REG4AH (IRQ_STATUS3).
+ * ======================================================================== */
+
+/* REG48H — IRQ_STATUS1 (bits 7:0 of irq_status_flags) */
+#define AXP2101_IRQ_STS_BAT_WORK_UNDER_TEMP (1UL << 0)  /* REG48[0] */
+#define AXP2101_IRQ_STS_BAT_WORK_OVER_TEMP  (1UL << 1)  /* REG48[1] */
+#define AXP2101_IRQ_STS_BAT_CHG_UNDER_TEMP  (1UL << 2)  /* REG48[2] */
+#define AXP2101_IRQ_STS_BAT_CHG_OVER_TEMP   (1UL << 3)  /* REG48[3] */
+#define AXP2101_IRQ_STS_GAUGE_NEW_SOC       (1UL << 4)  /* REG48[4] */
+#define AXP2101_IRQ_STS_GAUGE_WDT_TIMEOUT   (1UL << 5)  /* REG48[5] */
+#define AXP2101_IRQ_STS_SOC_SHUTDOWN        (1UL << 6)  /* REG48[6] */
+#define AXP2101_IRQ_STS_SOC_WARNING         (1UL << 7)  /* REG48[7] */
+
+/* REG49H — IRQ_STATUS2 (bits 15:8 of irq_status_flags) */
+#define AXP2101_IRQ_STS_PWRON_POS_EDGE      (1UL << 8)  /* REG49[0] */
+#define AXP2101_IRQ_STS_PWRON_NEG_EDGE      (1UL << 9)  /* REG49[1] */
+#define AXP2101_IRQ_STS_PWRON_LONG_PRESS    (1UL << 10) /* REG49[2] */
+#define AXP2101_IRQ_STS_PWRON_SHORT_PRESS   (1UL << 11) /* REG49[3] */
+#define AXP2101_IRQ_STS_BAT_REMOVE          (1UL << 12) /* REG49[4] */
+#define AXP2101_IRQ_STS_BAT_INSERT          (1UL << 13) /* REG49[5] */
+#define AXP2101_IRQ_STS_VBUS_REMOVE         (1UL << 14) /* REG49[6] */
+#define AXP2101_IRQ_STS_VBUS_INSERT         (1UL << 15) /* REG49[7] */
+
+/* REG4AH — IRQ_STATUS3 (bits 23:16 of irq_status_flags) */
+#define AXP2101_IRQ_STS_BAT_OVP             (1UL << 16) /* REG4A[0] */
+#define AXP2101_IRQ_STS_CHG_TIMER_EXPIRE    (1UL << 17) /* REG4A[1] */
+#define AXP2101_IRQ_STS_DIE_OVERTEMP_L1     (1UL << 18) /* REG4A[2] */
+#define AXP2101_IRQ_STS_CHARGE_START        (1UL << 19) /* REG4A[3] */
+#define AXP2101_IRQ_STS_CHARGE_DONE         (1UL << 20) /* REG4A[4] */
+#define AXP2101_IRQ_STS_BATFET_OCP          (1UL << 21) /* REG4A[5] */
+#define AXP2101_IRQ_STS_LDO_OC              (1UL << 22) /* REG4A[6] */
+#define AXP2101_IRQ_STS_WDT_EXPIRE          (1UL << 23) /* REG4A[7] */
+
+#define AXP2101_IRQ_STATUS_BIT_COUNT        24
+
+static const char * const axp2101_irq_status_strings[AXP2101_IRQ_STATUS_BIT_COUNT] = {
+    /* REG48H — IRQ_STATUS1 */
+    [0]  = "Battery Work Under Temperature",
+    [1]  = "Battery Work Over Temperature",
+    [2]  = "Battery Charge Under Temperature",
+    [3]  = "Battery Charge Over Temperature",
+    [4]  = "Gauge New SOC IRQ",
+    [5]  = "Gauge Watchdog Timeout IRQ",
+    [6]  = "SOC drop to Shutdown level",
+    [7]  = "SOC drop to Warning level",
+    /* REG49H — IRQ_STATUS2 */
+    [8]  = "POWERON Positive Edge",
+    [9]  = "POWERON Negative Edge",
+    [10] = "POWERON Long Press",
+    [11] = "POWERON Short Press",
+    [12] = "Battery Remove",
+    [13] = "Battery Insert",
+    [14] = "VBUS Remove",
+    [15] = "VBUS Insert",
+    /* REG4AH — IRQ_STATUS3 */
+    [16] = "Battery Over Voltage Protection",
+    [17] = "Charger Safety Timer1/2 expire",
+    [18] = "DIE Over Temperature level1 IRQ",
+    [19] = "Battery Charge start",
+    [20] = "Battery Charge done",
+    [21] = "BATFET Over Current Protection IRQ",
+    [22] = "LDO Over Current IRQ",
+    [23] = "Watchdog Expire IRQ",
+};
 
 /******************************************************************************/
 /*! @name       C++ Guard Macros                                      */

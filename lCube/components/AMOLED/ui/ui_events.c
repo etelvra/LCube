@@ -115,14 +115,17 @@ void LVGL_PMIC_SWevent_function(lv_event_t * e)
 void LVGL_PMIC_monitor_function(lv_event_t * e)
 {
 	// Your code here
-    pmic_monitor = true;
+    uint32_t trigger = 0xFFFFFFFF;
+    xQueueSend(pmic_event_queue, &trigger, 0);
 }
 
 void LVGL_Console_exit_function(lv_event_t * e)
 {
 	// Your code here
+    uint32_t trigger = 0;
+    xQueueSend(pmic_event_queue, &trigger, 0);
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_DISABLE");
-    pmic_monitor = false;
+    AMOLED_refresh();
 }
 
 void LVGL_Cloud_Sync_function(lv_event_t * e)

@@ -93,7 +93,7 @@ void PMIC_init(void)
     gpio_isr_handler_add(IOPIN_PMIC_IRQ, PMIC_IRQfunction_handler, (void*) IOPIN_PMIC_IRQ);
 
     //timer for PMIC status refresh
-    pmic_timer = xTimerCreate("pmic_tmr", pdMS_TO_TICKS(3000),
+    pmic_timer = xTimerCreate("pmic_tmr", pdMS_TO_TICKS(10000),
                                         pdTRUE, NULL, PMIC_timer_callback);
     if (pmic_timer)  xTimerStart(pmic_timer, 0);
 
@@ -161,9 +161,9 @@ static void task_pmic_management(void *param)
     while (1) {
         if (xQueueReceive(pmic_event_queue, &io_num, portMAX_DELAY)) {
             if (io_num == 0xFFFFFFFF){
+                pmic_monitor = true;
                 xTimerChangePeriod(pmic_timer, pdMS_TO_TICKS(1000), 0);
                 AMOLED_refresh();
-                pmic_monitor = true;
             } else if (!io_num){
                 pmic_monitor = false;
                 xTimerChangePeriod(pmic_timer, pdMS_TO_TICKS(10000), 0);
@@ -179,8 +179,8 @@ static void task_pmic_management(void *param)
                 y_pos = PMIC_status_list_refresh(&pmic_status);
                 if (io_num == IOPIN_PMIC_IRQ ) PMIC_irq_log_refresh(y_pos, &pmic_status);
             }
-            AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d\n", pmic_status.battery_pct);
-            if (io_num == IOPIN_PMIC_IRQ ) AMOLED_console_log(WARN, false, TAG, "AXP2101 IRQ triggered\n");
+            AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d", pmic_status.battery_pct);
+            if (io_num == IOPIN_PMIC_IRQ ) AMOLED_console_log(WARN, false, TAG, "AXP2101 IRQ triggered");
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }

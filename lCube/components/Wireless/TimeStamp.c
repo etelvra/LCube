@@ -69,7 +69,7 @@ void SNTP_obtain_time(void)
     time_t now = 0;
     struct tm timeinfo = { 0 };
     int retry = 0;
-    const int retry_count = 15;
+    const int retry_count = 5;
     // wait for time to be set
     while (esp_netif_sntp_sync_wait(2000 / portTICK_PERIOD_MS) == ESP_ERR_TIMEOUT && ++retry < retry_count) {
         AMOLED_console_log(INFORM,true,TAG, "Waiting for system time  set... (%d/%d)", retry, retry_count);

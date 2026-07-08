@@ -473,7 +473,7 @@ void touch_read_task(void *arg) {
 
     while (1) {
         // 读取触摸数据
-        ESP_ERROR_CHECK(esp_lcd_touch_read_data(amoled_touch_handle));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_lcd_touch_read_data(amoled_touch_handle));
 
         // 获取坐标
         if (esp_lcd_touch_get_coordinates(amoled_touch_handle, x, y, NULL, &point_num, 1)) {

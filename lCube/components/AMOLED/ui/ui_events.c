@@ -58,6 +58,9 @@ void LVGL_WIFI_List_event_function(lv_event_t * e)
 void LVGL_ListExit_event_function(lv_event_t * e)
 {
 	// Your code here
+    TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
+    wifi_cmd_monitor_params_t monitor_cfg = {0};
+    WIFI_send_cmd(WIFI_CMD_MONITOR_STOP, &monitor_cfg, current_task, 0);
 }
 
 

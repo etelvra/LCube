@@ -97,7 +97,7 @@ void lvgl_unlock(void)
 }
 
 /* -------------------- 可选：在当前活动屏挂一个启动 GIF -------------------- */
-static void ui_attach_boot_gif_if_needed(void)
+static void ui_attach_boot_gif(void)
 {
     lv_obj_t *active = lv_scr_act();
     if (!active) {
@@ -142,6 +142,7 @@ void LVGL_timer_screen1(void)
 {
     lv_timer_t * timer = lv_timer_create(lvgl_clock_update_cb, 500, NULL);
     lvgl_clock_update_cb(timer);
+//    ui_attach_boot_gif();
 }
 
 static void lvgl_task(void *arg)

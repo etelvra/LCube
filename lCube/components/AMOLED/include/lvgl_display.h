@@ -15,10 +15,10 @@ extern "C" {
 /*!             Header files
  ******************************************************************************/
 #define LVGL_TICK_PERIOD_MS    10
-#define EXAMPLE_LVGL_TASK_MAX_DELAY_MS 500
+#define EXAMPLE_LVGL_TASK_MAX_DELAY_MS 200
 #define EXAMPLE_LVGL_TASK_MIN_DELAY_MS 2
 #define EXAMPLE_LVGL_TASK_STACK_SIZE   (4 * 1024)
-#define EXAMPLE_LVGL_TASK_PRIORITY     12
+#define EXAMPLE_LVGL_TASK_PRIORITY     16
 
 void AMOLED_LVGL_init(void);
 

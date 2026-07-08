@@ -32,7 +32,7 @@
 #define IOPIN_BMI2_INT2                 (GPIO_NUM_40)
 
 //LED
-#define IOPIN_LED_BLUE                  (GPIO_NUM_0)
+#define IOPIN_LED_BLUE                  (GPIO_NUM_47)//0
 //RMT
 #define IOPIN_RMT_TX                    (GPIO_NUM_47)
 #define IOPIN_RMT_RX                    (GPIO_NUM_48)

@@ -205,7 +205,7 @@ void task_ota(void *param)
                         esp_ota_abort(update_handle);
                         task_fatal_error();
                     }
-                    AMOLED_console_log(INFORM,false,TAG, "esp_ota_begin succeeded");
+                    AMOLED_console_log(DEBUG,false,TAG, "esp_ota_begin succeeded");
                 } else {
                     AMOLED_console_log(ERROR,false,TAG, "received package is not fit len");
                     http_cleanup(client);
@@ -220,7 +220,7 @@ void task_ota(void *param)
                 task_fatal_error();
             }
             binary_file_length += data_read;
-            ESP_LOGD(TAG, "Written image length %d", binary_file_length);
+            AMOLED_console_log(INFORM,false,TAG, "Written image length %d", binary_file_length);
         } else if (data_read == 0) {
            /*
             * As esp_http_client_read never returns negative error code, we rely on

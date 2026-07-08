@@ -131,7 +131,6 @@ void LVGL_Console_exit_function(lv_event_t * e)
 void LVGL_Cloud_Sync_function(lv_event_t * e)
 {
 	// Your code here
-    vTaskDelay(50);
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
 }
 
@@ -153,7 +152,8 @@ void LVGL_Sync_SWevent_function(lv_event_t * e)
 
     if (is_on) {
         if (s_ota_task_handle == NULL) {
-            BaseType_t ret = xTaskCreate(&task_ota, "ota_task", 8192, NULL, 5, &s_ota_task_handle);
+            BaseType_t ret = xTaskCreate(&task_ota, "task_ota", 8192, NULL, 5, &s_ota_task_handle);
+            AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
             if (ret != pdPASS) {
                 AMOLED_console_log(ERROR, false, "ui", "Failed to create OTA task");
             }

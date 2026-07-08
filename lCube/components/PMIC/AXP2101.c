@@ -655,7 +655,7 @@ static char *rail_fmt(const axp2101_power_rail_t *r, char *buf, size_t sz)
         snprintf(buf, sz, "%umV", r->voltage_mv);
         return buf;
     }
-    return "[OFF]";
+    return "-----";
 }
 
 static const char *chg_stat_str(uint16_t pmu_status_flags)

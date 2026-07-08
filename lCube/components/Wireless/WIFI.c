@@ -38,7 +38,6 @@ static int s_retry_num = 0;
 static int s_net_index = 0;
 static uint8_t      s_target_bssid_list[MAX_BSSID_PER_SSID][MAC_LEN];
 static uint8_t      s_target_bssid_count;
-static int          s_target_channel     = 1;
 
 typedef struct {
     char ssid[32];
@@ -493,6 +492,7 @@ static bool is_bssid_zero(const uint8_t *bssid)
 static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
 {
     const wifi_cmd_monitor_params_t *p = &msg->params.monitor;
+    uint8_t s_target_channel = 0;
 
     if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) {
         if (xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
@@ -571,10 +571,6 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
     } else {
         ESP_LOGW(TAG, "Monitor: no BSSID or SSID specified");
         return;
-    }
-
-    if (s_target_channel == 0) {
-        s_target_channel = 1;
     }
 
     xEventGroupSetBits(s_wifi_event_group, WIFI_MONITORING_BIT);

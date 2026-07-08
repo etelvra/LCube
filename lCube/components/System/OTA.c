@@ -220,14 +220,14 @@ void task_ota(void *param)
                 task_fatal_error();
             }
             binary_file_length += data_read;
-            AMOLED_console_log(INFORM,false,TAG, "Written image length %d", binary_file_length);
+            AMOLED_console_log(DEBUG, true, TAG, "Written image length %d", binary_file_length);
         } else if (data_read == 0) {
            /*
             * As esp_http_client_read never returns negative error code, we rely on
             * `errno` to check for underlying transport connectivity closure if any
             */
             if (errno == ECONNRESET || errno == ENOTCONN) {
-                AMOLED_console_log(ERROR,false,TAG, "Connection closed, errno = %d", errno);
+                AMOLED_console_log(ERROR, false, TAG, "Connection closed, errno = %d", errno);
                 break;
             }
             if (esp_http_client_is_complete_data_received(client) == true) {

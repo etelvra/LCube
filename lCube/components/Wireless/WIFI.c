@@ -155,6 +155,7 @@ static void WIFI_EVENTfunction_handler(void* event_handler_arg, esp_event_base_t
         ip_event_got_ip_t *evt = (ip_event_got_ip_t *)event_data;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         AMOLED_console_log(INFORM, false, TAG, "STA: got IP " IPSTR, IP2STR(&evt->ip_info.ip));
+        lv_label_set_text(ui_WLANName, s_wifi_sta_list[s_net_index].ssid);
         SNTP_obtain_time();
     }
 }
@@ -578,13 +579,13 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
     esp_wifi_disconnect();
     esp_wifi_stop();
 
-    wifi_config_t cfg = {0};
-    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK) return;
-    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_STA, &cfg)) != ESP_OK) return;
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_NULL)) != ESP_OK) return;
     esp_wifi_set_channel(s_target_channel, WIFI_SECOND_CHAN_NONE);
 
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_cb);
+    wifi_promiscuous_filter_t filter = { .filter_mask = WIFI_PROMIS_FILTER_MASK_ALL };
+    esp_wifi_set_promiscuous_filter(&filter);
     esp_wifi_start();
 
     ESP_LOGI(TAG, "Monitor started: ch=%d, bssid_count=%d", s_target_channel, s_target_bssid_count);
@@ -627,11 +628,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     }
 
     wifi_promiscuous_pkt_t *pkt = (wifi_promiscuous_pkt_t *)buf;
-    ieee80211_mgmt_hdr_t *hdr = (ieee80211_mgmt_hdr_t *)pkt->payload;
+    ieee80211_frame_hdr_t *hdr = (ieee80211_frame_hdr_t *)pkt->payload;
 
-    // 只处理数据帧
-    if (type != WIFI_PKT_DATA) return;
-
+    // 只处理数据帧（不信任驱动的type参数，直接解析802.11帧头）
     uint8_t frame_type = (hdr->frame_control[0] >> 2) & 0x03;
     if (frame_type != 2) return;
 
@@ -646,6 +645,11 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type)
             break;
         }
         if (memcmp(hdr->da, s_target_bssid_list[i], MAC_LEN) == 0) {
+            frame_from_ap = false;
+            match = true;
+            break;
+        }
+        if (memcmp(hdr->bssid, s_target_bssid_list[i], MAC_LEN) == 0) {
             frame_from_ap = false;
             match = true;
             break;
@@ -787,7 +791,7 @@ void WIFI_deauth_attack(const uint8_t *ap_bssid, const uint8_t *sta_bssid, uint1
 
     // 1. 定义完整的去认证帧结构体 (公共头部 + 原因代码)
     typedef struct {
-        ieee80211_mgmt_hdr_t header;
+        ieee80211_frame_hdr_t header;
         uint8_t reason_code[2];
     } __attribute__((packed)) ieee80211_deauth_frame_t;
 

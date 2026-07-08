@@ -179,8 +179,8 @@ static void task_pmic_management(void *param)
                 y_pos = PMIC_status_list_refresh(&pmic_status);
                 if (io_num == IOPIN_PMIC_IRQ ) PMIC_irq_log_refresh(y_pos, &pmic_status);
             }
-            AMOLED_console_log(INFORM, false, TAG, "bat percentage is %d", pmic_status.battery_pct);
             if (io_num == IOPIN_PMIC_IRQ ) AMOLED_console_log(WARN, false, TAG, "AXP2101 IRQ triggered");
+            AMOLED_console_log(INFORM, true, TAG, "bat percentage is %d", pmic_status.battery_pct);
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }

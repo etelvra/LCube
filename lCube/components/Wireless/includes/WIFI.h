@@ -133,18 +133,15 @@ void WIFI_deinit(void);
 
 wifi_result_code_t WIFI_send_cmd(wifi_cmd_type_t cmd, const void *params, TaskHandle_t reply_task, uint32_t req_id);
 
-/**
- * 802.11 管理帧公共头部 (24 字节)
- * 参考 IEEE Std 802.11-2020 第 9.3.3.2 节
- */
-typedef struct ieee80211_mgmt_header {
+
+typedef struct ieee80211_frame_header {
     /*  0 - 1  */ uint8_t frame_control[2];   // 帧控制字段 (协议版本、类型、子类型、标志位)
     /*  2 - 3  */ uint8_t duration[2];        // 持续时间/ID (用于 NAV 设置)
     /*  4 - 9  */ uint8_t da[6];              // 地址1: 目的地址 (Destination Address)
     /* 10 - 15 */ uint8_t sa[6];              // 地址2: 源地址 (Source Address)
     /* 16 - 21 */ uint8_t bssid[6];           // 地址3: BSSID (基本服务集标识符)
     /* 22 - 23 */ uint8_t seq_ctrl[2];        // 序列控制字段 (片段号 + 序列号)
-} __attribute__((packed)) ieee80211_mgmt_hdr_t;
+} __attribute__((packed)) ieee80211_frame_hdr_t;
 
 /**
  * @brief Beacon 帧的固定参数部分 (紧接在公共头部之后)
@@ -161,7 +158,7 @@ typedef struct ieee80211_beacon_fixed {
  * @note  实际使用时需在结构体后添加可变长度标签参数
  */
 typedef struct {
-    ieee80211_mgmt_hdr_t   header;         // 公共头部
+    ieee80211_frame_hdr_t   header;         // 公共头部
     ieee80211_beacon_fixed_t fixed;        // 固定参数
     // uint8_t tagged_params[];            // 标签参数(柔性数组)
 } __attribute__((packed)) ieee80211_beacon_frame_t;

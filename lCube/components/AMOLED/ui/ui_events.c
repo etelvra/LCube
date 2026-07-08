@@ -23,18 +23,12 @@ void LVGL_WIFI_SWevent_function(lv_event_t * e)
     bool is_on = lv_obj_has_state(sw, LV_STATE_CHECKED);
 
     if (is_on) {
-        /* Step 1: 打开 WiFi STA（内部应为幂等，重复调用无副作用） */
         WIFI_init();
-
-        /* Step 2: UI 反馈（可选） */
         if (ui_WLANName) {
             lv_label_set_text(ui_WLANName, "WLAN ON");
         }
     } else {
-        /* Step 3: 关闭 WiFi STA 并释放资源 */
         WIFI_deinit();
-
-        /* Step 4: UI 反馈（可选） */
         if (ui_WLANName) {
             lv_label_set_text(ui_WLANName, "WLAN OFF");
         }
@@ -159,6 +153,7 @@ void LVGL_Sync_SWevent_function(lv_event_t * e)
             }
         }
     } else {
+        AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
         if (s_ota_task_handle != NULL) {
             OTA_request_cancel();
             s_ota_task_handle = NULL;

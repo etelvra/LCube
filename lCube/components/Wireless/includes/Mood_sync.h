@@ -1,5 +1,5 @@
-#ifndef HTTP_ESP_H_
-#define HTTP_ESP_H_
+#ifndef MOOD_SYNC_APP_H_
+#define MOOD_SYNC_APP_H_
 
 /*! CPP guard */
 #ifdef __cplusplus
@@ -10,9 +10,9 @@ extern "C" {
 
 /*!             Header files
  ******************************************************************************/
-#include "HTTP.h"
+void tcp_demo(void);
 
-void task_http_test(void *param);
+
 /******************************************************************************/
 /*! @name       C++ Guard Macros                                      */
 /******************************************************************************/
@@ -20,4 +20,4 @@ void task_http_test(void *param);
 }
 #endif /* End of CPP guard */
 
-#endif /* HTTP_ESP_H_ */
+#endif /* MOOD_SYNC_APP_H_ */

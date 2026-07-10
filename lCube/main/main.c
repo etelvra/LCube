@@ -7,7 +7,6 @@
 #include "LED.h"
 #include "AXP2101.h"
 #include "WIFI.h"
-#include "HTTP.h"
 #include "panel.h"
 #include "lvgl_display.h"
 #include "MIC.h"
@@ -25,7 +24,7 @@ void app_main(void)
     AMOLED_DISPLAY_init();
     AMOLED_TOUCH_init();
 
-    //xTaskCreatePinnedToCore(task_lightsleep_management,"lightsleep_management",8192,NULL,20,NULL,1);
+    xTaskCreatePinnedToCore(task_lightsleep_management,"lightsleep_management",8192,NULL,20,NULL,1);
 
     //xTaskCreatePinnedToCore(task_adc_mic_listen,"Initialize the mic and keep listening", 4096,NULL,4,NULL,0);
     //xTaskCreatePinnedToCore(task_fft_process,"task_fft",8192,NULL,2,NULL,1);

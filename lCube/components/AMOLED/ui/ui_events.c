@@ -8,6 +8,8 @@
 #include "light_sleep.h"
 #include "OTA.h"
 #include "panel.h"
+#include "Mood_sync.h"
+
 void LVGL_WIFI_SWevent_function(lv_event_t * e)
 {
 	// Your code here
@@ -129,6 +131,7 @@ void LVGL_Cloud_Sync_function(lv_event_t * e)
 {
 	// Your code here
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
+    tcp_demo();
 }
 
 static TaskHandle_t s_ota_task_handle = NULL;

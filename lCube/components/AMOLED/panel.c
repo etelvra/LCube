@@ -234,7 +234,7 @@ static void AMOLED_render_single_line(uint8_t level, const char *text) {//const:
     }
 }
 
-static void AMOLED_console_display(const console_log_t *console_log, bool previous_state)//Use Pointers to deliver structures to save stack
+static void AMOLED_console_display(const console_log_t *console_log, bool previous_overwrite_state)//Use Pointers to deliver structures to save stack
 {
     pixel_t *line_buffer_TS =NULL;
     //format log(tag + message)
@@ -254,7 +254,7 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
     }
 
     if (console.display_enable){
-        if (!previous_state){//Deleting this line will print all the details
+        if (!previous_overwrite_state){//Deleting this line will print all the details
             //scroll display buffer(address rotation)
             if (console.row_pos == CONSOLE_ROWS - 1) {
                 line_buffer_TS = console.line_buffers[0];
@@ -285,6 +285,7 @@ static void task_console(void *param)
 {
     console_log_t console_log_buffer;
     bool previous_state = false;
+    char previous_tag[8];
     while (1){
         if (xQueueReceive(console.log_queue, &console_log_buffer, portMAX_DELAY)) {//wait for log massage :)
             if (!strcmp(console_log_buffer.message, "CONSOLE_DISPLAY_ENABLE")){
@@ -293,8 +294,11 @@ static void task_console(void *param)
                 console.display_enable = false;
                 continue;
             }
-            AMOLED_console_display(&console_log_buffer, previous_state);
+            AMOLED_console_display(&console_log_buffer,
+                        memcmp(previous_tag, console_log_buffer.tag, sizeof(console_log_buffer.tag))==0 ? previous_state : false);
             previous_state = console_log_buffer.overwrite;
+            strncpy(previous_tag, console_log_buffer.tag, sizeof(console_log_buffer.tag));
+            previous_tag[sizeof(console_log_buffer.tag) - 1] = '\0';
         }
         //short delay to free up the CPU for improve the overall response of the system
         vTaskDelay(pdMS_TO_TICKS(10));

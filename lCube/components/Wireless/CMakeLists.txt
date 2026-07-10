@@ -1,11 +1,9 @@
-idf_component_register(SRCS  "TimeStamp.c" "HTTP.c" "WIFI.c"
+idf_component_register(SRCS  "TimeStamp.c" "WIFI.c" "TCP_client.c" "Mood_sync.c"
                     INCLUDE_DIRS "./includes"
                     REQUIRES
                         driver
                         esp_wifi
                         nvs_flash
-                        esp_http_client
-                        esp-tls
                         esp_netif
                         AMOLED
                     )

@@ -17,8 +17,8 @@ static const char* TAG = "PMIC";
 bool i2c_bus_initialized = false;
 QueueHandle_t pmic_event_queue = NULL;
 i2c_bus_handle_t i2c_bus_handle = NULL;
-static i2c_bus_device_handle_t axp2101_i2c_device_handle = NULL;
-static TimerHandle_t pmic_timer = NULL;
+static i2c_bus_device_handle_t s_axp2101_i2c_device_handle = NULL;
+static TimerHandle_t s_pmic_timer = NULL;
 
 #define AXP2101_I2C_RETRY_COUNT     3
 #define AXP2101_I2C_RETRY_DELAY_MS   1
@@ -26,7 +26,7 @@ static TimerHandle_t pmic_timer = NULL;
 static esp_err_t axp2101_i2c_read_bytes(uint8_t mem_address, size_t data_len, uint8_t *data) {
     esp_err_t ret = ESP_FAIL;
     for (int i = 0; i < AXP2101_I2C_RETRY_COUNT; i++) {
-        ret = i2c_bus_read_bytes(axp2101_i2c_device_handle, mem_address, data_len, data);
+        ret = i2c_bus_read_bytes(s_axp2101_i2c_device_handle, mem_address, data_len, data);
         if (ret == ESP_OK) return ESP_OK;
         vTaskDelay(pdMS_TO_TICKS(AXP2101_I2C_RETRY_DELAY_MS));
     }
@@ -37,7 +37,7 @@ static esp_err_t axp2101_i2c_read_bytes(uint8_t mem_address, size_t data_len, ui
 static esp_err_t axp2101_i2c_write_bytes(uint8_t mem_address, size_t data_len, const uint8_t *data) {
     esp_err_t ret = ESP_FAIL;
     for (int i = 0; i < AXP2101_I2C_RETRY_COUNT; i++) {
-        ret = i2c_bus_write_bytes(axp2101_i2c_device_handle, mem_address, data_len, data);
+        ret = i2c_bus_write_bytes(s_axp2101_i2c_device_handle, mem_address, data_len, data);
         if (ret == ESP_OK) return ESP_OK;
         vTaskDelay(pdMS_TO_TICKS(AXP2101_I2C_RETRY_DELAY_MS));
     }
@@ -67,7 +67,7 @@ static void PMIC_irq_log_refresh(uint16_t y_star, const axp2101_status_t *axp210
 void PMIC_init(void)
 {
     i2c_bus_init();
-    axp2101_i2c_device_handle = i2c_bus_device_create(i2c_bus_handle, AXP2101_ADDRESS, 0);
+    s_axp2101_i2c_device_handle = i2c_bus_device_create(i2c_bus_handle, AXP2101_ADDRESS, 0);
 
     //configure GPIO for axp2101 interrupt
     const gpio_config_t PMIC_irq_config = {
@@ -93,9 +93,9 @@ void PMIC_init(void)
     gpio_isr_handler_add(IOPIN_PMIC_IRQ, PMIC_IRQfunction_handler, (void*) IOPIN_PMIC_IRQ);
 
     //timer for PMIC status refresh
-    pmic_timer = xTimerCreate("pmic_tmr", pdMS_TO_TICKS(10000),
+    s_pmic_timer = xTimerCreate("pmic_tmr", pdMS_TO_TICKS(10000),
                                         pdTRUE, NULL, PMIC_timer_callback);
-    if (pmic_timer)  xTimerStart(pmic_timer, 0);
+    if (s_pmic_timer)  xTimerStart(s_pmic_timer, 0);
 
     xTaskCreatePinnedToCore(task_pmic_management,"task_pwr_management",4096,NULL,20,NULL,0);
 
@@ -162,11 +162,11 @@ static void task_pmic_management(void *param)
         if (xQueueReceive(pmic_event_queue, &io_num, portMAX_DELAY)) {
             if (io_num == 0xFFFFFFFF){
                 pmic_monitor = true;
-                xTimerChangePeriod(pmic_timer, pdMS_TO_TICKS(1000), 0);
+                xTimerChangePeriod(s_pmic_timer, pdMS_TO_TICKS(1000), 0);
                 AMOLED_refresh();
             } else if (!io_num){
                 pmic_monitor = false;
-                xTimerChangePeriod(pmic_timer, pdMS_TO_TICKS(10000), 0);
+                xTimerChangePeriod(s_pmic_timer, pdMS_TO_TICKS(10000), 0);
             }
             AXP2101_check_status(&pmic_status);
             if (pmic_status.battery_pct > 0 && pmic_status.battery_pct <= 10) {
@@ -179,7 +179,13 @@ static void task_pmic_management(void *param)
                 y_pos = PMIC_status_list_refresh(&pmic_status);
                 if (io_num == IOPIN_PMIC_IRQ ) PMIC_irq_log_refresh(y_pos, &pmic_status);
             }
-            if (io_num == IOPIN_PMIC_IRQ ) AMOLED_console_log(WARN, false, TAG, "AXP2101 IRQ triggered");
+            if (io_num == IOPIN_PMIC_IRQ ) {
+                for(int irq=0; irq<32; irq++) {
+                    if (pmic_status.irq_status_flags & (1UL << irq)) {
+                        AMOLED_console_log(INFORM, false, TAG, "%-48s", axp2101_irq_status_strings[irq]);
+                    }
+                }
+            }
             AMOLED_console_log(INFORM, true, TAG, "bat percentage is %d", pmic_status.battery_pct);
         }
         vTaskDelay(pdMS_TO_TICKS(10));

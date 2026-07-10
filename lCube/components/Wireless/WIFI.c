@@ -584,7 +584,8 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
 
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_cb);
-
+    wifi_promiscuous_filter_t filter = { .filter_mask = WIFI_PROMIS_FILTER_MASK_ALL };
+    esp_wifi_set_promiscuous_filter(&filter);
     esp_wifi_start();
 
     ESP_LOGI(TAG, "Monitor started: ch=%d, bssid_count=%d", s_target_channel, s_target_bssid_count);

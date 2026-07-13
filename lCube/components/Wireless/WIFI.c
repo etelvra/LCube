@@ -202,7 +202,7 @@ void WIFI_init(void)
     wifi_task_queue = xQueueCreate(16, sizeof(wifi_task_queue_message_t));
 
     if (s_wifi_app_task_handle == NULL) {
-        xTaskCreatePinnedToCore(task_wifi_application,"task_wifi_application",8192,NULL,8,
+        xTaskCreatePinnedToCore(task_wifi_application,"task_wifi_application",8192,NULL, 12,
                                 &s_wifi_app_task_handle, 0);
     }
 
@@ -306,10 +306,6 @@ void WIFI_deinit(void)
         s_wifi_event_group = NULL;
     }
 
-    if (s_wifi_app_task_handle != NULL) {
-        vTaskDelete(s_wifi_app_task_handle);
-        s_wifi_app_task_handle = NULL;
-    }
     if (wifi_task_queue != NULL) {
         vQueueDelete(wifi_task_queue);
         wifi_task_queue = NULL;
@@ -318,6 +314,11 @@ void WIFI_deinit(void)
     s_retry_num = 0;
     s_net_index = 0;
     AMOLED_console_log(INFORM, false, TAG, "STA: deinit done");
+
+    if (s_wifi_app_task_handle != NULL) {
+        vTaskDelete(s_wifi_app_task_handle);
+        s_wifi_app_task_handle = NULL;
+    }
 }
 
 
@@ -493,7 +494,7 @@ static bool is_bssid_zero(const uint8_t *bssid)
 static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
 {
     const wifi_cmd_monitor_params_t *p = &msg->params.monitor;
-    uint8_t s_target_channel = 0;
+    uint8_t target_channel = 0;
 
     if (xEventGroupGetBits(s_wifi_event_group) & WIFI_MONITORING_BIT) {
         if (xEventGroupGetBits(s_wifi_event_group) & WIFI_DEAUTH_BIT) {
@@ -525,7 +526,7 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
     if (!is_bssid_zero(p->ap_bssid)) {
         memcpy(s_target_bssid_list[0], p->ap_bssid, MAC_LEN);
         s_target_bssid_count = 1;
-        s_target_channel = p->target_channel;
+        target_channel = p->target_channel;
     } else if (p->target_ssid[0] != '\0') {
         /* 通过 SSID 扫描获取所有 BSSID */
 
@@ -557,8 +558,8 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
             if (strncmp((char *)ap_records[i].ssid, p->target_ssid, SSID_MAX_LEN) == 0) {
                 memcpy(s_target_bssid_list[s_target_bssid_count], ap_records[i].bssid, MAC_LEN);
                 s_target_bssid_count++;
-                if (s_target_channel == 0) {
-                    s_target_channel = ap_records[i].primary;
+                if (target_channel == 0) {
+                    target_channel = ap_records[i].primary;
                 }
                 ESP_LOGI(TAG, "Monitor: found BSSID " MACSTR " ch=%d for SSID %s",
                          MAC2STR(ap_records[i].bssid), ap_records[i].primary, p->target_ssid);
@@ -579,16 +580,22 @@ static void _handler_monitor_start(const wifi_task_queue_message_t *msg)
     esp_wifi_disconnect();
     esp_wifi_stop();
 
-    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_NULL)) != ESP_OK) return;
-    esp_wifi_set_channel(s_target_channel, WIFI_SECOND_CHAN_NONE);
+    if (ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA)) != ESP_OK) return;
+    esp_wifi_start();//The start will change the channel
+    esp_wifi_set_channel(target_channel, WIFI_SECOND_CHAN_NONE);
 
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(wifi_promiscuous_cb);
     wifi_promiscuous_filter_t filter = { .filter_mask = WIFI_PROMIS_FILTER_MASK_ALL };
     esp_wifi_set_promiscuous_filter(&filter);
-    esp_wifi_start();
 
-    ESP_LOGI(TAG, "Monitor started: ch=%d, bssid_count=%d", s_target_channel, s_target_bssid_count);
+    ESP_LOGI(TAG, "Monitor started: ch=%d, bssid_count=%d", target_channel, s_target_bssid_count);
+    for (int i = 0; i < s_target_bssid_count; i++) {
+    ESP_LOGI(TAG, "Target BSSID[%d]: " MACSTR, i, MAC2STR(s_target_bssid_list[i]));
+    }
+    wifi_second_chan_t secondary;
+    esp_wifi_get_channel(&target_channel, &secondary);
+    ESP_LOGI(TAG, "Actual channel set: %d (secondary %d)", target_channel, secondary);
 }
 
 static void _handler_monitor_stop(const wifi_task_queue_message_t *msg)

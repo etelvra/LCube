@@ -61,12 +61,12 @@ typedef struct {
 
 /* ---- TCP 公共 API (App 层调用) ---- */
 
-void     TCP_client_init      (const tcp_config_t *cfg);
-tcp_err_t TCP_client_publish  (const char *topic, const char *msg);
-int      TCP_client_send      (const char *data);          /* 原始发送 */
-int      TCP_client_send_line (const char *data);          /* 发送 + 追加 \r\n */
+void     TCP_client_init(const tcp_config_t *cfg);
+tcp_err_t TCP_client_publish(const char *topic, const char *msg);
+int      TCP_client_send(const char *data);          /* 原始发送 */
+int      TCP_client_send_line(const char *data);          /* 发送 + 追加 \r\n */
 bool     TCP_client_is_connected(void);
-void     TCP_client_deinit    (void);
+void     TCP_client_deinit(void);
 
 /* ================================================================
  *  Bemfa (巴法云) 协议驱动 — 内部模块，App 层不直接调用

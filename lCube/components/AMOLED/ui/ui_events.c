@@ -43,6 +43,8 @@ void LVGL_WIFI_SWevent_function(lv_event_t * e)
 void LVGL_WIFI_List_event_function(lv_event_t * e)
 {
 	// Your code here
+    lv_obj_t *target = lv_event_get_target(e);
+    if (!lv_obj_is_valid(target)) return;
     lv_label_set_text(ui_Title, "WLAN List");
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();
 
@@ -131,7 +133,7 @@ void LVGL_Cloud_Sync_function(lv_event_t * e)
 {
 	// Your code here
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_ENABLE");
-    tcp_demo();
+    //tcp_demo();
 }
 
 static TaskHandle_t s_ota_task_handle = NULL;

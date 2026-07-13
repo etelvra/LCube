@@ -19,7 +19,7 @@ static void on_server_line(const char *line, int len)
 void tcp_demo(void)
 {
     /* 初始化 */
-    bemfa_auth_t auth = { .uid = "uid", .topic = "lCubeTcp" };
+    bemfa_auth_t auth = { .uid = "u", .topic = "lCubeTcp" };
     tcp_config_t cfg = {
         .proto_ops = Bemfa_get_ops(&auth),
         .on_line   = on_server_line,
@@ -31,7 +31,7 @@ void tcp_demo(void)
         TCP_client_publish("lCubeTcp", "hello from esp32");
     }
 
-    TCP_client_send_line("cmd=3&uid=uid&topic=lCubeTcp&msg=custom");
+
 
     TCP_client_deinit();
 }

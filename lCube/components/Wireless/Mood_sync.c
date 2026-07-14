@@ -19,7 +19,7 @@ static void on_server_line(const char *line, int len)
 void tcp_demo(void)
 {
     /* 初始化 */
-    bemfa_auth_t auth = { .uid = "u", .topic = "lCubeTcp" };
+    bemfa_auth_t auth = { .uid = "7b49bccee2f54d1e8c0b4769b788fac9", .topic = "lCubeTcp" };
     tcp_config_t cfg = {
         .proto_ops = Bemfa_get_ops(&auth),
         .on_line   = on_server_line,

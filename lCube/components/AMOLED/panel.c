@@ -89,6 +89,68 @@ void AMOLED_console_log(uint8_t level, bool overwrite, const char *tag, const ch
     }
 }
 
+static void AMOLED_render_single_line(pixel_t fg_color, pixel_t bg_color, bool portrait,
+                                        int print_pixel_length, pixel_t *render_buf, const char *text) {//const:在该函数内禁止通过text指针修改它所指向的字符内容
+    uint8_t byte_per_pixel = sizeof(pixel_t);
+
+    //Draw character
+    for (int col = 0; col < strlen(text); col++) {
+        char c = text[col];
+        if (c < 32 || c > 126) c = ' '; // 非可打印字符
+
+        const uint8_t *glyph = font_8x16[c - 32];
+
+        if (portrait) {
+            int current_char_pos = col * CHAR_WIDTH;
+            for (int x = 0; x < 16; x++) {
+                //if (!glyph[x]) continue;//Skip the 0 value of the glyph
+                int quotient = x/8;
+                int remainder = x%8;
+                for (int y = 0; y < 8; y++) {
+                    int pos = (((quotient<<3)+y) * print_pixel_length) + current_char_pos + remainder;
+                    if (glyph[x] & (1 <<  y )) {
+                        //render the current pixe
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)render_buf)[pos] = fg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&render_buf[pos * byte_per_pixel], &fg_color, byte_per_pixel);
+                        #endif
+                    }else {
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)render_buf)[pos] = bg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&render_buf[pos * byte_per_pixel], &bg_color, byte_per_pixel);
+                        #endif
+                    }
+                }
+            }
+        }else{
+            int current_char_pos = (print_pixel_length - col*CHAR_WIDTH) * CHAR_HEIGHT;
+            for (int x = 0; x < 16; x++) {
+                //if (!glyph[x]) continue;//Skip the 0 value of the glyph
+                int char_column_pos = x%8 * CHAR_HEIGHT + CHAR_HEIGHT;
+                int quotient = x/8;
+                for (int y = 0; y < 8; y++) {
+                    int pos = current_char_pos -char_column_pos + ((quotient<<3)+y);
+                    if (glyph[x] & (1 <<  y )) {
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)render_buf)[pos] = fg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&render_buf[pos * byte_per_pixel], &fg_color, byte_per_pixel);
+                        #endif
+                    }else {
+                        #if BPP_COLOR_DEPTH == 16
+                        ((pixel_t *)render_buf)[pos] = bg_color;
+                        #elif BPP_COLOR_DEPTH == 24
+                        memcpy(&render_buf[pos * byte_per_pixel], &bg_color, byte_per_pixel);
+                        #endif
+                    }
+                }
+            }
+        }
+    }
+}
+
 void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, const char *text, ...) {
     if (amoled_panel_mutex == NULL) {
         ESP_LOGW(TAG, "Amoled not initialized, dropping log message");
@@ -119,60 +181,9 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
     printf("%s\n",char_buffer);
 
     int str_length = (int)strlen(char_buffer);
-    //Render character
-    for (int col = 0; col < str_length; col++) {
-        char c = char_buffer[col];
-        if (c < 32 || c > 126) c = ' '; // 非可打印字符
 
-        const uint8_t *glyph = font_8x16[c - 32];
+    AMOLED_render_single_line(fg_color, bg_color, portrait, str_length*CHAR_WIDTH, single_line_buffer, char_buffer);
 
-        if (portrait){//横竖屏不同渲染
-            int current_char_pos = col * CHAR_WIDTH;
-            for (int x = 0; x < 16; x++) {
-                int quotient = x/8;
-                int remainder = x%8;
-                for (int y = 0; y < 8; y++) {
-                    //render the current pixe
-                    int pos = (((quotient<<3)+y) * str_length * CHAR_WIDTH) + current_char_pos + remainder;
-                    if (glyph[x] & (1 <<  y )) {
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)single_line_buffer)[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&single_line_buffer[pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
-                    }else{
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)single_line_buffer)[pos] = bg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&single_line_buffer[pos * byte_per_pixel], &bg_color, byte_per_pixel);
-                        #endif
-                    }
-                }
-            }
-        }else{
-            int current_char_pos = (str_length-col) * CHAR_HEIGHT * CHAR_WIDTH;
-            for (int x = 0; x < 16; x++) {
-                int char_column_pos = x%8 * CHAR_HEIGHT + CHAR_HEIGHT;
-                int quotient = x/8;
-                for (int y = 0; y < 8; y++) {
-                    int pos = current_char_pos - char_column_pos + ((quotient<<3)+y);
-                    if (glyph[x] & (1 <<  y )) {
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)single_line_buffer)[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&single_line_buffer[pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
-                    }else{
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)single_line_buffer)[pos] = bg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&single_line_buffer[pos * byte_per_pixel], &bg_color, byte_per_pixel);
-                        #endif
-                    }
-                }
-            }
-        }
-    }
     if (portrait){
         AMOLED_panel_draw_bitmap_mutex(amoled_panel_handle, x_pos, y_pos, x_pos+str_length*CHAR_WIDTH, y_pos + CHAR_HEIGHT, single_line_buffer);
     }else{
@@ -181,83 +192,10 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
     heap_caps_free(single_line_buffer);
 }
 
-static void AMOLED_render_single_line(uint8_t level, const char *text) {//const:在该函数内禁止通过text指针修改它所指向的字符内容
-    uint8_t byte_per_pixel = sizeof(pixel_t);
-    const pixel_t bg_color = PIXEL_BLACK;
-    pixel_t fg_color = PIXEL_WHITE;
-    bool portrait=1;
-    switch (level)
-    {
-    case ERROR:
-        fg_color = PIXEL_ERROR;
-        break;
-    case WARN:
-        fg_color = PIXEL_WARN;
-        break;
-    case DEBUG:
-        fg_color = PIXEL_INFO;
-        break;
-    default:
-        fg_color = PIXEL_WHITE;//(pixel_t){0xFB, 0xE4, 0xEE};
-        break;
-    }
-    // Clear the line_buffer
-    for (int i = 0; i < LCD_H_RES * CHAR_HEIGHT; i++) {
-        #if BPP_COLOR_DEPTH == 16
-        ((pixel_t *)console.line_buffers[console.row_pos])[i] = bg_color;
-        #elif BPP_COLOR_DEPTH == 24
-        memcpy(&console.line_buffers[console.row_pos][i * byte_per_pixel], &bg_color, byte_per_pixel);
-        #endif
-    }
-
-    //Draw character
-    for (int col = 0; col < strlen(text); col++) {
-        char c = text[col];
-        if (c < 32 || c > 126) c = ' '; // 非可打印字符
-
-        const uint8_t *glyph = font_8x16[c - 32];
-
-        if (portrait) {
-            int current_char_pos = col * CHAR_WIDTH;
-            for (int x = 0; x < 16; x++) {
-                if (!glyph[x]) continue;//Skip the 0 value of the glyph
-                int quotient = x/8;
-                int remainder = x%8;
-                for (int y = 0; y < 8; y++) {
-                    int pos = (((quotient<<3)+y) * LCD_H_RES) + current_char_pos + remainder;
-                    if (glyph[x] & (1 <<  y )) {
-                        //render the current pixe
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)console.line_buffers[console.row_pos])[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&console.line_buffers[console.row_pos][pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
-                    }
-                }
-            }
-        }else{
-            int current_char_pos = (LCD_V_RES-col) * CHAR_HEIGHT * CHAR_WIDTH;
-            for (int x = 0; x < 16; x++) {
-                if (!glyph[x]) continue;//Skip the 0 value of the glyph
-                int char_column_pos = x%8 * CHAR_HEIGHT + CHAR_HEIGHT;
-                int quotient = x/8;
-                for (int y = 0; y < 8; y++) {
-                    int pos = current_char_pos -char_column_pos + ((quotient<<3)+y);
-                    if (glyph[x] & (1 <<  y )) {
-                        #if BPP_COLOR_DEPTH == 16
-                        ((pixel_t *)console.line_buffers[console.row_pos])[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&console.line_buffers[console.row_pos][pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
-                    }
-                }
-            }
-        }
-    }
-}
-
 static void AMOLED_console_display(const console_log_t *console_log, bool previous_overwrite_state)//Use Pointers to deliver structures to save stack
 {
+    const pixel_t bg_color = PIXEL_BLACK;
+    pixel_t fg_color = PIXEL_WHITE;
     pixel_t *line_buffer_TS =NULL;
     //format log(tag + message)
     snprintf(console.buffer, sizeof(console.buffer), "[%s] %s", console_log->tag, console_log->message);
@@ -266,13 +204,21 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
     switch (console_log->level)
     {
     case ERROR:
-        ESP_LOGE( "AMOLED" ,"%s",console.buffer);      break;
+        ESP_LOGE( "AMOLED" ,"%s",console.buffer);
+        fg_color = PIXEL_ERROR;
+        break;
     case WARN:
-        ESP_LOGW( "AMOLED" ,"%s",console.buffer);      break;
+        ESP_LOGW( "AMOLED" ,"%s",console.buffer);
+        fg_color = PIXEL_WARN;
+        break;
     case DEBUG:
-        ESP_LOGD( "AMOLED" ,"%s",console.buffer);      break;
+        ESP_LOGD( "AMOLED" ,"%s",console.buffer);
+        fg_color = PIXEL_INFO;
+        break;
     default:
-        ESP_LOGI( "AMOLED" ,"%s",console.buffer);      break;
+        ESP_LOGI( "AMOLED" ,"%s",console.buffer);
+        fg_color = PIXEL_WHITE;//(pixel_t){0xFB, 0xE4, 0xEE};
+        break;
     }
 
     if (console.display_enable){
@@ -295,7 +241,15 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
             }
         }
     //render and print new line
-    AMOLED_render_single_line(console_log->level, console.buffer);
+    // Clear the line_buffer
+    for (int i = 0; i < LCD_V_RES * CHAR_HEIGHT; i++) {
+        #if BPP_COLOR_DEPTH == 16
+        ((pixel_t *)console.line_buffers[console.row_pos])[i] = bg_color;
+        #elif BPP_COLOR_DEPTH == 24
+        memcpy(&console.line_buffers[console.row_pos][i * byte_per_pixel], &bg_color, byte_per_pixel);
+        #endif
+    }
+    AMOLED_render_single_line(fg_color, bg_color, 1, 384, console.line_buffers[console.row_pos], console.buffer);
     AMOLED_panel_draw_bitmap_mutex(console.panel, 0, console.row_pos*CHAR_HEIGHT,
                                                 LCD_H_RES, console.row_pos*CHAR_HEIGHT + CHAR_HEIGHT,
                                                 console.line_buffers[console.row_pos]);
@@ -338,7 +292,7 @@ esp_err_t AMOLED_console_init(esp_lcd_panel_handle_t panel) {
     console.log_queue = xQueueCreate(10, sizeof(console_log_t));
     //Allocate the single-line graphic buffer
     for (int line = 0; line < CONSOLE_ROWS; line++) {
-        console.line_buffers[line] = (pixel_t *)heap_caps_malloc(LCD_H_RES * CHAR_HEIGHT * byte_per_pixel, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
+        console.line_buffers[line] = (pixel_t *)heap_caps_malloc(LCD_V_RES * CHAR_HEIGHT * byte_per_pixel, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
     }
     xTaskCreatePinnedToCore(task_console,"console",4096,NULL,16,NULL,1);
     return ESP_OK;

@@ -90,7 +90,7 @@ void AMOLED_console_log(uint8_t level, bool overwrite, const char *tag, const ch
 }
 
 static void AMOLED_render_single_line(pixel_t fg_color, pixel_t bg_color, bool portrait,
-                                        int print_pixel_length, pixel_t *render_buf, const char *text) {//const:在该函数内禁止通过text指针修改它所指向的字符内容
+                                        int print_pixel_width, pixel_t *render_buf, const char *text) {//const:在该函数内禁止通过text指针修改它所指向的字符内容
     uint8_t byte_per_pixel = sizeof(pixel_t);
 
     //Draw character
@@ -107,25 +107,17 @@ static void AMOLED_render_single_line(pixel_t fg_color, pixel_t bg_color, bool p
                 int quotient = x/8;
                 int remainder = x%8;
                 for (int y = 0; y < 8; y++) {
-                    int pos = (((quotient<<3)+y) * print_pixel_length) + current_char_pos + remainder;
+                    int pos = (((quotient<<3)+y) * print_pixel_width) + current_char_pos + remainder;
                     if (glyph[x] & (1 <<  y )) {
                         //render the current pixe
-                        #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)render_buf)[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&render_buf[pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
                     }else {
-                        #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)render_buf)[pos] = bg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&render_buf[pos * byte_per_pixel], &bg_color, byte_per_pixel);
-                        #endif
                     }
                 }
             }
         }else{
-            int current_char_pos = (print_pixel_length - col*CHAR_WIDTH) * CHAR_HEIGHT;
+            int current_char_pos = (print_pixel_width - col*CHAR_WIDTH) * CHAR_HEIGHT;
             for (int x = 0; x < 16; x++) {
                 //if (!glyph[x]) continue;//Skip the 0 value of the glyph
                 int char_column_pos = x%8 * CHAR_HEIGHT + CHAR_HEIGHT;
@@ -133,17 +125,9 @@ static void AMOLED_render_single_line(pixel_t fg_color, pixel_t bg_color, bool p
                 for (int y = 0; y < 8; y++) {
                     int pos = current_char_pos -char_column_pos + ((quotient<<3)+y);
                     if (glyph[x] & (1 <<  y )) {
-                        #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)render_buf)[pos] = fg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&render_buf[pos * byte_per_pixel], &fg_color, byte_per_pixel);
-                        #endif
                     }else {
-                        #if BPP_COLOR_DEPTH == 16
                         ((pixel_t *)render_buf)[pos] = bg_color;
-                        #elif BPP_COLOR_DEPTH == 24
-                        memcpy(&render_buf[pos * byte_per_pixel], &bg_color, byte_per_pixel);
-                        #endif
                     }
                 }
             }
@@ -230,29 +214,28 @@ static void AMOLED_console_display(const console_log_t *console_log, bool previo
                     console.line_buffers[line] = console.line_buffers[line + 1 ];
                     AMOLED_panel_draw_bitmap_mutex(console.panel, 0, line*CHAR_HEIGHT, LCD_H_RES, line*CHAR_HEIGHT + CHAR_HEIGHT,
                                                         console.line_buffers[line]);
+                    // AMOLED_panel_draw_bitmap_mutex(console.panel, line*CHAR_HEIGHT, 0,
+                    //             line*CHAR_HEIGHT + CHAR_HEIGHT, LCD_V_RES, console.line_buffers[line]);
                 }
                 console.line_buffers[CONSOLE_ROWS - 1] = line_buffer_TS;
             } else {
                 for (int line = 0; line <= console.row_pos; line++) {
                     AMOLED_panel_draw_bitmap_mutex(console.panel, 0, line*CHAR_HEIGHT, LCD_H_RES, line*CHAR_HEIGHT + CHAR_HEIGHT,
                                                         console.line_buffers[line]);
+                    // AMOLED_panel_draw_bitmap_mutex(console.panel, line*CHAR_HEIGHT, 0,
+                    //             line*CHAR_HEIGHT + CHAR_HEIGHT, LCD_V_RES, console.line_buffers[line]);
                 }
                 console.row_pos++;
             }
         }
     //render and print new line
-    // Clear the line_buffer
-    for (int i = 0; i < LCD_V_RES * CHAR_HEIGHT; i++) {
-        #if BPP_COLOR_DEPTH == 16
-        ((pixel_t *)console.line_buffers[console.row_pos])[i] = bg_color;
-        #elif BPP_COLOR_DEPTH == 24
-        memcpy(&console.line_buffers[console.row_pos][i * byte_per_pixel], &bg_color, byte_per_pixel);
-        #endif
-    }
+    memset(console.line_buffers[console.row_pos], 0, LCD_V_RES * CHAR_HEIGHT * sizeof(pixel_t));
     AMOLED_render_single_line(fg_color, bg_color, 1, 384, console.line_buffers[console.row_pos], console.buffer);
     AMOLED_panel_draw_bitmap_mutex(console.panel, 0, console.row_pos*CHAR_HEIGHT,
                                                 LCD_H_RES, console.row_pos*CHAR_HEIGHT + CHAR_HEIGHT,
                                                 console.line_buffers[console.row_pos]);
+    // AMOLED_panel_draw_bitmap_mutex(console.panel, console.row_pos*CHAR_HEIGHT, 0,
+    //                             console.row_pos*CHAR_HEIGHT + CHAR_HEIGHT, LCD_V_RES, console.line_buffers[console.row_pos]);
     }
     console.log_num++;
 }

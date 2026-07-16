@@ -221,6 +221,7 @@ void AMOLED_LVGL_init(void)
 
     //AMOLED_refresh();
     ESP_LOGI(TAG, "Create lvgl task");
+    AMOLED_render_direction_set(false);
     xTaskCreate(lvgl_task, "task_LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY,NULL);
     AMOLED_console_log(INFORM, false, "ui" ,"CONSOLE_DISPLAY_DISABLE");
 }

@@ -716,8 +716,7 @@ static const char *bat_dir_str(uint16_t pmu_status_flags)
 
 static uint16_t PMIC_status_list_refresh(const axp2101_status_t *axp2101_status)
 {
-    esp_lcd_panel_swap_xy(amoled_panel_handle, 0);
-    esp_lcd_panel_mirror(amoled_panel_handle, 1, 1);
+    AMOLED_render_direction_set(true);
 
     uint16_t y = axp2101_status->vbat_mv%5;
     AMOLED_print_single_line(0, y, true, "                 PMIC: AXP2101                 "); y += 16;
@@ -761,15 +760,13 @@ static uint16_t PMIC_status_list_refresh(const axp2101_status_t *axp2101_status)
     }
     AMOLED_print_single_line(0, y, true, "------------------ IRQ logs -------------------"); y += 16;
 
-    esp_lcd_panel_swap_xy(amoled_panel_handle, 1);
-    esp_lcd_panel_mirror(amoled_panel_handle, 1, 0);
+    AMOLED_render_direction_set(false);
     return y;
 }
 
 static void PMIC_irq_log_refresh(uint16_t y_star, const axp2101_status_t *axp2101_status)
 {
-    esp_lcd_panel_swap_xy(amoled_panel_handle, 0);
-    esp_lcd_panel_mirror(amoled_panel_handle, 1, 1);
+    AMOLED_render_direction_set(true);
     uint8_t irq_log_num = 0;
     uint16_t y = y_star;
     for(int irq=0; irq<32; irq++) {
@@ -782,6 +779,5 @@ static void PMIC_irq_log_refresh(uint16_t y_star, const axp2101_status_t *axp210
     while (y<448) {
         AMOLED_print_single_line(0, y, true, "                                               "); y += 16;
     }
-    esp_lcd_panel_swap_xy(amoled_panel_handle, 1);
-    esp_lcd_panel_mirror(amoled_panel_handle, 1, 0);
+    AMOLED_render_direction_set(false);
 }

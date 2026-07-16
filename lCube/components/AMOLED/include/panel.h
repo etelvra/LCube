@@ -88,6 +88,7 @@ void AMOLED_TOUCH_init(void);
 void AMOLED_LVGL_init(void);
 
 void AMOLED_refresh(void);
+esp_err_t AMOLED_render_direction_set(bool portrait);
 void AMOLED_console_log(uint8_t level, bool overwrite ,const char *tag, const char *format, ...);
 void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, const char *text, ...);
 

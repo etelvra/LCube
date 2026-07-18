@@ -22,25 +22,34 @@ static const char*TAG = "panel";
 esp_lcd_panel_handle_t amoled_panel_handle = NULL;
 esp_lcd_touch_handle_t amoled_touch_handle = NULL;
 SemaphoreHandle_t amoled_panel_mutex = NULL;
-SemaphoreHandle_t amoled_touch_mutex = NULL;
+SemaphoreHandle_t amoled_touch_sem = NULL;
+static SemaphoreHandle_t refresh_finish_sem = NULL;
+static SemaphoreHandle_t te_sync_sem = NULL;
 
 static i2c_bus_handle_t  i2c_tp_handle = NULL;
 
 static panel_console_t console;//static struct panel_console console
-static SemaphoreHandle_t refresh_finish = NULL;
+
 extern const uint8_t font_8x16[95][16];// 字库引用 (95个ASCII字符 32-126)
 
-IRAM_ATTR static bool test_notify_refresh_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+IRAM_ATTR static void te_isr_handler(void *arg)
 {
     BaseType_t need_yield = pdFALSE;
-    xSemaphoreGiveFromISR(refresh_finish, &need_yield);
+    xSemaphoreGiveFromISR(te_sync_sem, &need_yield);
+    if (need_yield) portYIELD_FROM_ISR();
+}
+
+IRAM_ATTR static bool refresh_ready_isr_handler(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+{
+    BaseType_t need_yield = pdFALSE;
+    xSemaphoreGiveFromISR(refresh_finish_sem, &need_yield);
     return (need_yield == pdTRUE);
 }
 
-IRAM_ATTR static void touch_callback(esp_lcd_touch_handle_t tp)
+IRAM_ATTR static void touch_isr_handler(esp_lcd_touch_handle_t tp)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(amoled_touch_mutex, &xHigherPriorityTaskWoken);
+    xSemaphoreGiveFromISR(amoled_touch_sem, &xHigherPriorityTaskWoken);
 
     if (xHigherPriorityTaskWoken) {
         portYIELD_FROM_ISR();
@@ -151,11 +160,6 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
     vsnprintf(char_buffer, sizeof(char_buffer), text, args);
     va_end(args);
 
-    pixel_t *single_line_buffer = (pixel_t *)heap_caps_malloc(LCD_V_RES * CHAR_HEIGHT * byte_per_pixel, MALLOC_CAP_DMA);
-    if (!single_line_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate  single_line_buffer");
-        return;
-    }
     //prevent overflow
     if (portrait) {
         char_buffer[LCD_H_RES/CHAR_WIDTH - 1] = '\0';
@@ -165,6 +169,12 @@ void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, con
     printf("%s\n",char_buffer);
 
     int str_length = (int)strlen(char_buffer);
+
+    pixel_t *single_line_buffer = (pixel_t *)heap_caps_malloc(LCD_V_RES * CHAR_HEIGHT * byte_per_pixel, MALLOC_CAP_DMA);
+    if (!single_line_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate  single_line_buffer");
+        return;
+    }
 
     AMOLED_render_single_line(fg_color, bg_color, portrait, str_length*CHAR_WIDTH, single_line_buffer, char_buffer);
 
@@ -326,13 +336,13 @@ void AMOLED_DISPLAY_init() {
     amoled_panel_mutex = xSemaphoreCreateMutex();
     //Install panel IO (QSPI mode)
     esp_lcd_panel_io_handle_t io_handle = NULL;
-    refresh_finish = xSemaphoreCreateBinary();
-    if (refresh_finish == NULL) {
+    refresh_finish_sem = xSemaphoreCreateBinary();
+    if (refresh_finish_sem == NULL) {
         ESP_LOGE(TAG, "Failed to create refresh semaphore");
         return;
     }
     //Configure as the default configuration for CO5300
-    const esp_lcd_panel_io_spi_config_t io_config = CO5300_PANEL_IO_QSPI_CONFIG(IOPIN_QSPI_CS0, test_notify_refresh_ready, NULL);
+    const esp_lcd_panel_io_spi_config_t io_config = CO5300_PANEL_IO_QSPI_CONFIG(IOPIN_QSPI_CS0, refresh_ready_isr_handler, NULL);
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
     //Install the CO5300 driver (QSPI mode)
     const co5300_vendor_config_t vendor_config = {
@@ -356,6 +366,7 @@ void AMOLED_DISPLAY_init() {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(amoled_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(amoled_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(amoled_panel_handle, true));
+    AMOLED_te_sync_init();
     //clear the contents of the screen registers
     uint16_t *refresh_buffer = heap_caps_calloc(1,CHAR_HEIGHT* LCD_H_RES * BPP_COLOR_DEPTH /8, MALLOC_CAP_DMA);
     for (int i = 0; i < LCD_V_RES/CHAR_HEIGHT ; i++) {
@@ -392,7 +403,7 @@ void AMOLED_TOUCH_init(void)
     };
     i2c_tp_handle = i2c_bus_create(I2C_TP_PORT, &i2c_tp_config);
 
-    amoled_touch_mutex = xSemaphoreCreateBinary();
+    amoled_touch_sem = xSemaphoreCreateBinary();
     //Configure the touch IO
     esp_lcd_panel_io_handle_t io_handle = NULL;
     esp_lcd_panel_io_i2c_config_t io_config = ESP_LCD_TOUCH_IO_I2C_CST820_CONFIG();
@@ -418,7 +429,7 @@ void AMOLED_TOUCH_init(void)
             .mirror_x = 0,   // 是否镜像X坐标
             .mirror_y = 0,   // 是否镜像Y坐标
         },
-        .interrupt_callback = touch_callback,
+        .interrupt_callback = touch_isr_handler,
     };
     //Create the touch controller
     ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_cst820(io_handle, &touch_config, &amoled_touch_handle));
@@ -449,4 +460,27 @@ esp_err_t AMOLED_render_direction_set(bool portrait)
         ESP_LOGW(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
     }
+}
+
+/* ---- TE (Tearing Effect) 同步信号 ---- */
+void AMOLED_te_sync_init(void)
+{
+    gpio_config_t te_pin_conf = {
+        .pin_bit_mask = 1ULL << IOPIN_LCD_TE,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    gpio_config(&te_pin_conf);
+    te_sync_sem = xSemaphoreCreateBinary();
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(IOPIN_LCD_TE, te_isr_handler, NULL);
+}
+
+bool AMOLED_wait_te(uint32_t timeout_ms)
+{
+    if (te_sync_sem == NULL) return false;
+    xSemaphoreTake(te_sync_sem, 0);                 // flush stale signal
+    return xSemaphoreTake(te_sync_sem, timeout_ms) == pdTRUE;
 }

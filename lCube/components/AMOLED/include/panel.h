@@ -77,7 +77,7 @@ typedef struct console_log{              //Send structure to the queue
 extern esp_lcd_panel_handle_t amoled_panel_handle;
 extern esp_lcd_touch_handle_t amoled_touch_handle;
 extern SemaphoreHandle_t amoled_panel_mutex;
-extern SemaphoreHandle_t amoled_touch_mutex;
+extern SemaphoreHandle_t amoled_touch_sem;
 
 void AMOLED_DISPLAY_init(void);
 esp_err_t AMOLED_panel_draw_bitmap_mutex(esp_lcd_panel_handle_t panel,
@@ -91,6 +91,9 @@ void AMOLED_refresh(void);
 esp_err_t AMOLED_render_direction_set(bool portrait);
 void AMOLED_console_log(uint8_t level, bool overwrite ,const char *tag, const char *format, ...);
 void AMOLED_print_single_line(uint16_t x_pos, uint16_t y_pos, bool portrait, const char *text, ...);
+
+void AMOLED_te_sync_init(void);
+bool AMOLED_wait_te(uint32_t timeout_ms);
 
 
 

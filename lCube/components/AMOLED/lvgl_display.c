@@ -42,6 +42,7 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 #endif
 
     // copy a buffer's content to a specific area of the display
+    AMOLED_wait_te(pdMS_TO_TICKS(50));
     AMOLED_panel_draw_bitmap_mutex(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
     lv_disp_flush_ready(drv);
 }
@@ -56,7 +57,7 @@ static void lvgl_touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
     uint8_t tp_cnt = 0;
 
     /* Read data from touch controller into memory */
-    if (xSemaphoreTake(amoled_touch_mutex, 0) == pdTRUE) {
+    if (xSemaphoreTake(amoled_touch_sem, 0) == pdTRUE) {
         esp_lcd_touch_read_data(tp);
     }
 
@@ -203,6 +204,7 @@ void AMOLED_LVGL_init(void)
     indev_drv.type = LV_INDEV_TYPE_POINTER;//设备种类，触屏设备
     indev_drv.disp = disp;//配置触摸关联的显示屏，使用LVGL注册的显示驱动结构体
     indev_drv.read_cb = lvgl_touch_read_cb;
+    disp_drv.full_refresh = 1;           // full-screen refresh avoids partial-update coordinate skew
     indev_drv.user_data = amoled_touch_handle;
     lv_indev_drv_register(&indev_drv);
 

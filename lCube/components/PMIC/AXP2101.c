@@ -46,7 +46,7 @@ static esp_err_t axp2101_i2c_write_bytes(uint8_t mem_address, size_t data_len, c
 }
 
 //Create the interrupt service function
-static void IRAM_ATTR PMIC_IRQfunction_handler(void* arg)
+static void IRAM_ATTR pmic_isr_handler(void* arg)
 {
     uint32_t gpio_num = (uint32_t) arg;
     xQueueSendFromISR(lightsleep_event_queue, &gpio_num, NULL);
@@ -89,8 +89,8 @@ void PMIC_init(void)
     gpio_install_isr_service(ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_IRAM|ESP_INTR_FLAG_EDGE);
 
     //hook isr handler for specific gpio pin
-//    gpio_isr_handler_add(IOPIN_PMIC_PWR, PMIC_IRQfunction_handler, (void*) IOPIN_PMIC_PWR);
-    gpio_isr_handler_add(IOPIN_PMIC_IRQ, PMIC_IRQfunction_handler, (void*) IOPIN_PMIC_IRQ);
+//    gpio_isr_handler_add(IOPIN_PMIC_PWR, pmic_isr_handler, (void*) IOPIN_PMIC_PWR);
+    gpio_isr_handler_add(IOPIN_PMIC_IRQ, pmic_isr_handler, (void*) IOPIN_PMIC_IRQ);
 
     //timer for PMIC status refresh
     s_pmic_timer = xTimerCreate("pmic_tmr", pdMS_TO_TICKS(10000),

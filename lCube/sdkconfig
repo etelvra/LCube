@@ -2235,6 +2235,12 @@ CONFIG_CODEC_TAS5805M_SUPPORT=y
 # end of Audio Codec Device Configuration
 
 #
+# JPEG Decoder
+#
+CONFIG_JD_USE_ROM=y
+# end of JPEG Decoder
+
+#
 # LVGL configuration
 #
 # CONFIG_LV_CONF_SKIP is not set

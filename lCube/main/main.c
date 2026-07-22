@@ -4,14 +4,15 @@
 #include "freertos/queue.h"
 
 #include "esp_log.h"
-#include "LED.h"
 #include "AXP2101.h"
-#include "WIFI.h"
 #include "panel.h"
+#include "FatFS.h"
+#include "WIFI.h"
 #include "lvgl_display.h"
 #include "MIC.h"
 #include "BM_SENSOR.h"
 #include "light_sleep.h"
+#include "LED.h"
 
 static const char *TAG = "main";
 TaskHandle_t task_led_indicator_handler;
@@ -23,6 +24,7 @@ void app_main(void)
     ledc_configer();
     AMOLED_DISPLAY_init();
     AMOLED_TOUCH_init();
+    FatFS_init();
 
     xTaskCreatePinnedToCore(task_lightsleep_management,"lightsleep_management",8192,NULL,20,NULL,1);
 

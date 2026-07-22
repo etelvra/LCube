@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include "esp_err.h"
+#include "wear_levelling.h"
 
 #define FATFS_BASE_PATH  "/storage"
 #define FATFS_PART_LABEL "storage"
@@ -15,7 +16,11 @@ extern "C" {
 /* ---- Initialization ---- */
 esp_err_t FatFS_init(void);
 esp_err_t FatFS_deinit(void);
-bool      FatFS_is_mounted(void);
+bool FatFS_is_mounted(void);
+wl_handle_t FatFS_get_wl_handle(void);
+
+void FatFS_acquire(void);
+void FatFS_release(void);
 
 /* ---- File operations (thread-safe) ---- */
 esp_err_t FatFS_read_file(const char *path, void *buf, size_t buf_size, size_t *bytes_read);

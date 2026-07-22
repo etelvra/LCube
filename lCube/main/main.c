@@ -7,6 +7,7 @@
 #include "AXP2101.h"
 #include "panel.h"
 #include "FatFS.h"
+#include "usb_msc.h"
 #include "WIFI.h"
 #include "lvgl_display.h"
 #include "MIC.h"
@@ -24,7 +25,8 @@ void app_main(void)
     ledc_configer();
     AMOLED_DISPLAY_init();
     AMOLED_TOUCH_init();
-    FatFS_init();
+    ESP_ERROR_CHECK(FatFS_init());
+    //ESP_ERROR_CHECK(usb_msc_init());
 
     xTaskCreatePinnedToCore(task_lightsleep_management,"lightsleep_management",8192,NULL,20,NULL,1);
 

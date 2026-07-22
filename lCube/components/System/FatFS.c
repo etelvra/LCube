@@ -118,6 +118,24 @@ bool FatFS_is_mounted(void)
     return m;
 }
 
+wl_handle_t FatFS_get_wl_handle(void)
+{
+    fatfs_lock();
+    wl_handle_t h = fatfs_wl_handle;
+    fatfs_unlock();
+    return h;
+}
+
+void FatFS_acquire(void)
+{
+    if (fatfs_mutex) xSemaphoreTake(fatfs_mutex, portMAX_DELAY);
+}
+
+void FatFS_release(void)
+{
+    if (fatfs_mutex) xSemaphoreGive(fatfs_mutex);
+}
+
 /* ---- file operations ---- */
 
 esp_err_t FatFS_read_file(const char *path, void *buf, size_t buf_size, size_t *bytes_read)
